@@ -1,0 +1,12 @@
+{
+  "play_count": 3,
+  "anti_lock_interval": 30,
+  "bluetooth_heartbeat_interval": 30,
+  "play_interval": 60,
+  "audio_directory": "res",
+  "http_port": 9090,
+  "debug": false,
+  "volume_threshold": 0.005,
+  "low_freq_ratio_threshold": 0.015,
+  "total_energy_threshold": 0.01
+}
