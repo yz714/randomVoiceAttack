@@ -34,6 +34,11 @@ type DetectionLog struct {
 	Type      string `json:"type"`
 }
 
+type PlaybackController interface {
+	IsPlaying() bool
+	SetPlaying(playing bool)
+}
+
 type HTTPConfig struct {
 	HTTPPort int
 }
@@ -45,18 +50,16 @@ type HTTPServer struct {
 	detectionLogs   []DetectionLog
 	audioFiles      []string
 	dataMutex       sync.Mutex
-	isPlaying       *bool
-	playMutex       *sync.Mutex
+	playbackCtrl    PlaybackController
 	dataFilePath    string
 	mux             *http.ServeMux
 }
 
-func NewHTTPServer(config HTTPConfig, audioFiles []string, isPlaying *bool, playMutex *sync.Mutex) *HTTPServer {
+func NewHTTPServer(config HTTPConfig, audioFiles []string, playbackCtrl PlaybackController) *HTTPServer {
 	server := &HTTPServer{
 		config:       config,
 		audioFiles:   audioFiles,
-		isPlaying:    isPlaying,
-		playMutex:    playMutex,
+		playbackCtrl: playbackCtrl,
 		dataFilePath: "./noise_data.json",
 		mux:          http.NewServeMux(),
 	}
@@ -145,16 +148,11 @@ func (s *HTTPServer) handleDetectionLogs(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *HTTPServer) checkIsPlaying() bool {
-	s.playMutex.Lock()
-	playing := *s.isPlaying
-	s.playMutex.Unlock()
-	return playing
+	return s.playbackCtrl.IsPlaying()
 }
 
 func (s *HTTPServer) setIsPlaying(playing bool) {
-	s.playMutex.Lock()
-	*s.isPlaying = playing
-	s.playMutex.Unlock()
+	s.playbackCtrl.SetPlaying(playing)
 }
 
 func (s *HTTPServer) getAudioFiles() []string {

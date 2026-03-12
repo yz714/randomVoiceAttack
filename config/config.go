@@ -2,10 +2,29 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 )
 
-// Config 配置结构体
+const (
+	minHTTPPort = 1
+	maxHTTPPort = 65535
+	minPlayCount = 1
+	maxPlayCount = 100
+	minIntervalMs = 100
+)
+
+var (
+	ErrInvalidHTTPPort = errors.New("HTTP port must be between 1 and 65535")
+	ErrInvalidPlayCount = errors.New("play count must be between 1 and 100")
+	ErrEmptyAudioDirectory = errors.New("audio directory cannot be empty")
+	ErrInvalidAntiLockInterval = errors.New("anti-lock interval must be at least 100ms")
+	ErrInvalidBluetoothHeartbeatInterval = errors.New("bluetooth heartbeat interval must be at least 100ms")
+	ErrInvalidVolumeThreshold = errors.New("volume threshold must be non-negative")
+	ErrInvalidLowFreqRatioThreshold = errors.New("low frequency ratio threshold must be between 0 and 1")
+	ErrInvalidTotalEnergyThreshold = errors.New("total energy threshold must be non-negative")
+)
+
 type Config struct {
 	PlayCount                  int     `json:"play_count"`
 	AntiLockInterval           int     `json:"anti_lock_interval"`
@@ -14,18 +33,15 @@ type Config struct {
 	AudioDirectory             string  `json:"audio_directory"`
 	HTTPPort                   int     `json:"http_port"`
 	Debug                      bool    `json:"debug"`
-	// 检测阈值配置
 	VolumeThreshold            float64 `json:"volume_threshold"`
 	LowFreqRatioThreshold      float64 `json:"low_freq_ratio_threshold"`
 	TotalEnergyThreshold       float64 `json:"total_energy_threshold"`
 }
 
-// LoadConfig 从默认文件加载配置
 func LoadConfig() (Config, error) {
 	return LoadConfigFromFile("config.json")
 }
 
-// LoadConfigFromFile 从指定文件加载配置
 func LoadConfigFromFile(path string) (Config, error) {
 	var config Config
 
@@ -37,5 +53,49 @@ func LoadConfigFromFile(path string) (Config, error) {
 
 	decoder := json.NewDecoder(file)
 	err = decoder.Decode(&config)
-	return config, err
+	if err != nil {
+		return config, err
+	}
+
+	if err := config.Validate(); err != nil {
+		return config, err
+	}
+
+	return config, nil
+}
+
+func (c *Config) Validate() error {
+	if c.HTTPPort < minHTTPPort || c.HTTPPort > maxHTTPPort {
+		return ErrInvalidHTTPPort
+	}
+
+	if c.PlayCount < minPlayCount || c.PlayCount > maxPlayCount {
+		return ErrInvalidPlayCount
+	}
+
+	if c.AudioDirectory == "" {
+		return ErrEmptyAudioDirectory
+	}
+
+	if c.AntiLockInterval < minIntervalMs {
+		return ErrInvalidAntiLockInterval
+	}
+
+	if c.BluetoothHeartbeatInterval < minIntervalMs {
+		return ErrInvalidBluetoothHeartbeatInterval
+	}
+
+	if c.VolumeThreshold < 0 {
+		return ErrInvalidVolumeThreshold
+	}
+
+	if c.LowFreqRatioThreshold < 0 || c.LowFreqRatioThreshold > 1 {
+		return ErrInvalidLowFreqRatioThreshold
+	}
+
+	if c.TotalEnergyThreshold < 0 {
+		return ErrInvalidTotalEnergyThreshold
+	}
+
+	return nil
 }

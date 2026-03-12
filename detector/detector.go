@@ -44,6 +44,8 @@ var (
 		TotalEnergyThreshold:  0.01,
 	}
 	configMutex sync.RWMutex
+	droppedNoiseDataCount uint64
+	droppedLogCount       uint64
 )
 
 func SetDetectorConfig(cfg DetectorConfig) {
@@ -106,6 +108,10 @@ func getSamples() ([]float64, error) {
 				select {
 				case NoiseDataChan <- noiseData:
 				default:
+					droppedNoiseDataCount++
+					if Debug {
+						fmt.Printf("Warning: Noise data channel full, dropped %d entries\n", droppedNoiseDataCount)
+					}
 				}
 			}
 		}
@@ -186,6 +192,10 @@ func detectLowFrequency(samples []float64) bool {
 		select {
 		case NoiseDataChan <- noiseData:
 		default:
+			droppedNoiseDataCount++
+			if Debug {
+				fmt.Printf("Warning: Noise data channel full, dropped %d entries\n", droppedNoiseDataCount)
+			}
 		}
 
 		detected := volume > cfg.VolumeThreshold && lowFreqRatio > cfg.LowFreqRatioThreshold
@@ -196,6 +206,10 @@ func detectLowFrequency(samples []float64) bool {
 				Type:    "detection",
 			}:
 			default:
+				droppedLogCount++
+				if Debug {
+					fmt.Printf("Warning: Detection log channel full, dropped %d entries\n", droppedLogCount)
+				}
 			}
 		}
 		return detected

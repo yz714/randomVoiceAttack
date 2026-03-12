@@ -68,7 +68,7 @@ func (app *App) StartServices() {
 
 	app.httpServer = services.NewHTTPServer(services.HTTPConfig{
 		HTTPPort: app.cfg.HTTPPort,
-	}, app.audioCtrl.AudioFiles, app.audioCtrl.GetIsPlayingPointer(), app.audioCtrl.GetPlayMutex())
+	}, app.audioCtrl.AudioFiles, app.audioCtrl)
 	app.httpServer.Start(app.ctx)
 
 	go app.collectNoiseData()

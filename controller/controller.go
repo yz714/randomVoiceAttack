@@ -11,11 +11,16 @@ import (
 	"randomVoiceAttack/player"
 )
 
+type PlaybackController interface {
+	IsPlaying() bool
+	SetPlaying(playing bool)
+}
+
 type AudioController struct {
 	AudioFiles []string
 	playCount  int
 	isPlaying  bool
-	playMutex  *sync.Mutex
+	playMutex  sync.Mutex
 }
 
 func NewAudioController(audioFiles []string, playCount int) *AudioController {
@@ -23,7 +28,7 @@ func NewAudioController(audioFiles []string, playCount int) *AudioController {
 		AudioFiles: audioFiles,
 		playCount:  playCount,
 		isPlaying:  false,
-		playMutex:  &sync.Mutex{},
+		playMutex:  sync.Mutex{},
 	}
 }
 
@@ -37,14 +42,6 @@ func (ac *AudioController) SetPlaying(playing bool) {
 	ac.playMutex.Lock()
 	defer ac.playMutex.Unlock()
 	ac.isPlaying = playing
-}
-
-func (ac *AudioController) GetPlayMutex() *sync.Mutex {
-	return ac.playMutex
-}
-
-func (ac *AudioController) GetIsPlayingPointer() *bool {
-	return &ac.isPlaying
 }
 
 func (ac *AudioController) PlayRandomAudios(ctx context.Context) {
