@@ -1,3 +1,6 @@
+# Data files
+noise_data.json
+
 # Binaries
 *.exe
 *.exe~

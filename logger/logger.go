@@ -1,9 +1,7 @@
 package logger
 
 import (
-	"fmt"
 	"os"
-	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -28,12 +26,8 @@ func Init() error {
 		return err
 	}
 
-	now := time.Now()
-	timestamp := now.Format("20060102_150405")
-	logFileWithTimestamp := fmt.Sprintf("logs/voice_attack_%s.log", timestamp)
-
 	fileWriter := zapcore.AddSync(&lumberjack.Logger{
-		Filename:   logFileWithTimestamp,
+		Filename:   logFile,
 		MaxSize:    maxSize,
 		MaxBackups: maxBackups,
 		MaxAge:     maxAge,
@@ -42,14 +36,12 @@ func Init() error {
 
 	consoleWriter := zapcore.AddSync(os.Stdout)
 
-	// 控制台编码器 - 带彩色
 	consoleEncoderConfig := zap.NewDevelopmentEncoderConfig()
 	consoleEncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 	consoleEncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
 	consoleEncoderConfig.TimeKey = "time"
 	consoleEncoderConfig.MessageKey = "msg"
 
-	// 文件编码器 - 不带彩色
 	fileEncoderConfig := zap.NewProductionEncoderConfig()
 	fileEncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
 	fileEncoderConfig.TimeKey = "time"
@@ -67,7 +59,7 @@ func Init() error {
 	logger = zap.New(core, zap.AddCallerSkip(1))
 	sugar = logger.Sugar()
 
-	Log("Logger initialized with zap")
+	Info("Logger initialized with zap")
 	return nil
 }
 

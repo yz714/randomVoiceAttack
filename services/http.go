@@ -15,7 +15,11 @@ import (
 	"randomVoiceAttack/player"
 )
 
-// NoiseData 噪音数据结构体
+const (
+	maxNoiseDataEntries = 1000
+	maxDetectionLogs    = 100
+)
+
 type NoiseData struct {
 	Timestamp    string    `json:"timestamp"`
 	LowFreqRatio float64   `json:"low_freq_ratio"`
@@ -24,19 +28,16 @@ type NoiseData struct {
 	Time         time.Time `json:"time"`
 }
 
-// DetectionLog 检测日志结构体
 type DetectionLog struct {
 	Timestamp string `json:"timestamp"`
 	Message   string `json:"message"`
-	Type      string `json:"type"` // "detection", "playback", "info"
+	Type      string `json:"type"`
 }
 
-// HTTPConfig HTTP服务器配置
 type HTTPConfig struct {
 	HTTPPort int
 }
 
-// HTTPServer HTTP服务器结构体
 type HTTPServer struct {
 	config          HTTPConfig
 	noiseData       []NoiseData
@@ -46,286 +47,227 @@ type HTTPServer struct {
 	dataMutex       sync.Mutex
 	isPlaying       *bool
 	playMutex       *sync.Mutex
-	dataFile        string
+	dataFilePath    string
+	mux             *http.ServeMux
 }
 
-// NewHTTPServer 创建新的HTTP服务器
 func NewHTTPServer(config HTTPConfig, audioFiles []string, isPlaying *bool, playMutex *sync.Mutex) *HTTPServer {
 	server := &HTTPServer{
-		config:     config,
-		audioFiles: audioFiles,
-		isPlaying:  isPlaying,
-		playMutex:  playMutex,
-		dataFile:   "./noise_data.json",
+		config:       config,
+		audioFiles:   audioFiles,
+		isPlaying:    isPlaying,
+		playMutex:    playMutex,
+		dataFilePath: "./noise_data.json",
+		mux:          http.NewServeMux(),
 	}
-
-	// 从文件加载噪音数据
 	server.LoadNoiseDataFromFile()
-
 	return server
 }
 
-// Start 启动HTTP服务器
 func (s *HTTPServer) Start(ctx context.Context) {
-	// 设置HTTP路由
-	// 提供静态文件服务
-	http.Handle("/", http.FileServer(http.Dir("./frontend")))
+	s.setupRoutes()
 
-	// 噪音数据API
-	http.HandleFunc("/api/noise-data", func(w http.ResponseWriter, r *http.Request) {
-		s.dataMutex.Lock()
-		defer s.dataMutex.Unlock()
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(s.noiseData)
-	})
-
-	// 实时噪音数据API（1秒均值）
-	http.HandleFunc("/api/noise-data/realtime", func(w http.ResponseWriter, r *http.Request) {
-		s.dataMutex.Lock()
-		defer s.dataMutex.Unlock()
-
-		// 计算最近1秒的均值
-		var avgLowFreqRatio, avgVolume, avgMaxSample float64
-		if len(s.recentNoiseData) > 0 {
-			for _, d := range s.recentNoiseData {
-				avgLowFreqRatio += d.LowFreqRatio
-				avgVolume += d.Volume
-				avgMaxSample += d.MaxSample
-			}
-			avgLowFreqRatio /= float64(len(s.recentNoiseData))
-			avgVolume /= float64(len(s.recentNoiseData))
-			avgMaxSample /= float64(len(s.recentNoiseData))
-		}
-
-		// 返回实时数据
-		realtimeData := map[string]interface{}{
-			"low_freq_ratio": avgLowFreqRatio,
-			"volume":         avgVolume,
-			"max_sample":     avgMaxSample,
-			"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(realtimeData)
-	})
-
-	// 检测日志API
-	http.HandleFunc("/api/detection-logs", func(w http.ResponseWriter, r *http.Request) {
-		s.dataMutex.Lock()
-		defer s.dataMutex.Unlock()
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(s.detectionLogs)
-	})
-
-	// 播放随机音频API
-	http.HandleFunc("/api/audio/play/random", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		// 检查是否正在播放声音
-		s.playMutex.Lock()
-		playing := *s.isPlaying
-		s.playMutex.Unlock()
-
-		if playing {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"error":   "Audio is already playing",
-			})
-			return
-		}
-
-		// 在后台播放音频
-		go func() {
-			logger.Log("Starting audio playback goroutine")
-			// 获取音频文件列表
-			logger.Log("Acquiring dataMutex")
-			s.dataMutex.Lock()
-			logger.Log("Acquired dataMutex")
-			audioFiles := s.audioFiles
-			s.dataMutex.Unlock()
-			logger.Log("Released dataMutex")
-
-			logger.Log("Number of audio files: %d", len(audioFiles))
-			if len(audioFiles) == 0 {
-				logger.Log("No audio files found")
-				return
-			}
-
-			// 随机选择一个音频文件
-			randomFile := audioFiles[rand.Intn(len(audioFiles))]
-			logger.Log("Playing random audio: %s", randomFile)
-
-			// 设置播放状态为 true
-			logger.Log("Acquiring playMutex")
-			s.playMutex.Lock()
-			logger.Log("Acquired playMutex")
-			*s.isPlaying = true
-			s.playMutex.Unlock()
-			logger.Log("Released playMutex")
-			logger.Log("Set isPlaying to true")
-
-			// 确保播放完成后重置播放状态
-			defer func() {
-				logger.Log("Acquiring playMutex for reset")
-				s.playMutex.Lock()
-				logger.Log("Acquired playMutex for reset")
-				*s.isPlaying = false
-				s.playMutex.Unlock()
-				logger.Log("Released playMutex for reset")
-				logger.Log("Set isPlaying to false")
-			}()
-
-			// 播放选中的音频
-			logger.Log("Calling player.PlayAudio")
-			err := player.PlayAudio(randomFile)
-			if err != nil {
-				logger.Log("Error playing audio: %v", err)
-			} else {
-				logger.Log("Audio playback completed")
-			}
-		}()
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "Playing random audio",
-		})
-	})
-
-	// 连续播放3次API
-	http.HandleFunc("/api/audio/play/sequence", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		// 检查是否正在播放声音
-		s.playMutex.Lock()
-		playing := *s.isPlaying
-		s.playMutex.Unlock()
-
-		if playing {
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"success": false,
-				"error":   "Audio is already playing",
-			})
-			return
-		}
-
-		// 连续播放3次随机音频
-		go func() {
-			// 获取音频文件列表
-			s.dataMutex.Lock()
-			audioFiles := s.audioFiles
-			s.dataMutex.Unlock()
-
-			if len(audioFiles) == 0 {
-				logger.Log("No audio files found")
-				return
-			}
-
-			// 设置播放状态为 true
-			s.playMutex.Lock()
-			*s.isPlaying = true
-			s.playMutex.Unlock()
-
-			defer func() {
-				s.playMutex.Lock()
-				*s.isPlaying = false
-				s.playMutex.Unlock()
-				logger.Log("Audio sequence playback completed")
-			}()
-
-			for i := 0; i < 3; i++ {
-				// 随机选择一个音频文件
-				randomFile := audioFiles[rand.Intn(len(audioFiles))]
-				logger.Log("Playing (%d/3): %s", i+1, randomFile)
-
-				// 播放选中的音频
-				err := player.PlayAudio(randomFile)
-				if err != nil {
-					logger.Log("Error playing audio: %v", err)
-					// 继续播放下一个，不停止
-					continue
-				}
-			}
-		}()
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "Starting audio sequence playback",
-		})
-	})
-
-	// 停止播放API
-	http.HandleFunc("/api/audio/stop", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		// 这里可以添加停止音频播放的逻辑
-		// 由于player.PlayAudio是阻塞的，所以在这个API中可能无法直接停止正在播放的音频
-		// 但我们可以返回成功，因为前端只是需要一个反馈
-		logger.Log("Stop audio requested")
-
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"message": "Audio stop requested",
-		})
-	})
-
-	// 启动HTTP服务器
 	go func() {
 		addr := fmt.Sprintf(":%d", s.config.HTTPPort)
 		server := &http.Server{
 			Addr:    addr,
-			Handler: nil, // 使用默认的ServeMux
+			Handler: s.mux,
 		}
 
-		// 启动服务器
 		go func() {
-			logger.Log("HTTP server started on %s", addr)
+			logger.Info("HTTP server started on %s", addr)
 			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				logger.Log("Error starting HTTP server: %v", err)
+				logger.Info("Error starting HTTP server: %v", err)
 			}
 		}()
 
-		// 等待退出信号
 		<-ctx.Done()
 
-		// 优雅关闭服务器
-		logger.Log("Shutting down HTTP server...")
+		logger.Info("Shutting down HTTP server...")
 		if err := server.Shutdown(context.Background()); err != nil {
-			logger.Log("Error shutting down HTTP server: %v", err)
+			logger.Info("Error shutting down HTTP server: %v", err)
 		}
-		logger.Log("HTTP server stopped")
+		logger.Info("HTTP server stopped")
 	}()
 }
 
-// AddNoiseData 添加噪音数据
+func (s *HTTPServer) setupRoutes() {
+	s.mux.Handle("/", http.FileServer(http.Dir("./frontend")))
+	s.mux.HandleFunc("/api/noise-data", s.handleNoiseData)
+	s.mux.HandleFunc("/api/noise-data/realtime", s.handleRealtimeNoiseData)
+	s.mux.HandleFunc("/api/detection-logs", s.handleDetectionLogs)
+	s.mux.HandleFunc("/api/audio/play/random", s.handlePlayRandom)
+	s.mux.HandleFunc("/api/audio/play/sequence", s.handlePlaySequence)
+	s.mux.HandleFunc("/api/audio/stop", s.handleStopAudio)
+}
+
+func (s *HTTPServer) handleNoiseData(w http.ResponseWriter, r *http.Request) {
+	s.dataMutex.Lock()
+	defer s.dataMutex.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.noiseData)
+}
+
+func (s *HTTPServer) handleRealtimeNoiseData(w http.ResponseWriter, r *http.Request) {
+	s.dataMutex.Lock()
+	defer s.dataMutex.Unlock()
+
+	var avgLowFreqRatio, avgVolume, avgMaxSample float64
+	if len(s.recentNoiseData) > 0 {
+		for _, d := range s.recentNoiseData {
+			avgLowFreqRatio += d.LowFreqRatio
+			avgVolume += d.Volume
+			avgMaxSample += d.MaxSample
+		}
+		avgLowFreqRatio /= float64(len(s.recentNoiseData))
+		avgVolume /= float64(len(s.recentNoiseData))
+		avgMaxSample /= float64(len(s.recentNoiseData))
+	}
+
+	realtimeData := map[string]interface{}{
+		"low_freq_ratio": avgLowFreqRatio,
+		"volume":         avgVolume,
+		"max_sample":     avgMaxSample,
+		"timestamp":      time.Now().Format("2006-01-02 15:04:05"),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(realtimeData)
+}
+
+func (s *HTTPServer) handleDetectionLogs(w http.ResponseWriter, r *http.Request) {
+	s.dataMutex.Lock()
+	defer s.dataMutex.Unlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.detectionLogs)
+}
+
+func (s *HTTPServer) checkIsPlaying() bool {
+	s.playMutex.Lock()
+	playing := *s.isPlaying
+	s.playMutex.Unlock()
+	return playing
+}
+
+func (s *HTTPServer) setIsPlaying(playing bool) {
+	s.playMutex.Lock()
+	*s.isPlaying = playing
+	s.playMutex.Unlock()
+}
+
+func (s *HTTPServer) getAudioFiles() []string {
+	s.dataMutex.Lock()
+	audioFiles := s.audioFiles
+	s.dataMutex.Unlock()
+	return audioFiles
+}
+
+func (s *HTTPServer) respondJSON(w http.ResponseWriter, success bool, message string, extra map[string]interface{}) {
+	response := map[string]interface{}{
+		"success": success,
+		"message": message,
+	}
+	for k, v := range extra {
+		response[k] = v
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+func (s *HTTPServer) handlePlayRandom(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.checkIsPlaying() {
+		s.respondJSON(w, false, "Audio is already playing", map[string]interface{}{"error": "Audio is already playing"})
+		return
+	}
+
+	go func() {
+		audioFiles := s.getAudioFiles()
+		if len(audioFiles) == 0 {
+			logger.Info("No audio files found")
+			return
+		}
+
+		randomFile := audioFiles[rand.Intn(len(audioFiles))]
+		logger.Info("Playing random audio: %s", randomFile)
+
+		s.setIsPlaying(true)
+		defer s.setIsPlaying(false)
+
+		if err := player.PlayAudio(randomFile); err != nil {
+			logger.Info("Error playing audio: %v", err)
+		} else {
+			logger.Info("Audio playback completed")
+		}
+	}()
+
+	s.respondJSON(w, true, "Playing random audio", nil)
+}
+
+func (s *HTTPServer) handlePlaySequence(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if s.checkIsPlaying() {
+		s.respondJSON(w, false, "Audio is already playing", map[string]interface{}{"error": "Audio is already playing"})
+		return
+	}
+
+	go func() {
+		audioFiles := s.getAudioFiles()
+		if len(audioFiles) == 0 {
+			logger.Info("No audio files found")
+			return
+		}
+
+		s.setIsPlaying(true)
+		defer func() {
+			s.setIsPlaying(false)
+			logger.Info("Audio sequence playback completed")
+		}()
+
+		for i := 0; i < 3; i++ {
+			randomFile := audioFiles[rand.Intn(len(audioFiles))]
+			logger.Info("Playing (%d/3): %s", i+1, randomFile)
+
+			if err := player.PlayAudio(randomFile); err != nil {
+				logger.Info("Error playing audio: %v", err)
+				continue
+			}
+		}
+	}()
+
+	s.respondJSON(w, true, "Starting audio sequence playback", nil)
+}
+
+func (s *HTTPServer) handleStopAudio(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	logger.Info("Stop audio requested")
+	s.respondJSON(w, true, "Audio stop requested", nil)
+}
+
 func (s *HTTPServer) AddNoiseData(data map[string]interface{}) {
-	// 处理噪音数据
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	lowFreqRatio, _ := data["low_freq_ratio"].(float64)
 	volume, _ := data["volume"].(float64)
 	maxSample, _ := data["max_sample"].(float64)
 	t, _ := data["time"].(time.Time)
 
-	// 加锁保护噪音数据
 	s.dataMutex.Lock()
 	defer s.dataMutex.Unlock()
 
-	// 添加新的噪音数据
 	s.noiseData = append(s.noiseData, NoiseData{
 		Timestamp:    timestamp,
 		LowFreqRatio: lowFreqRatio,
@@ -334,12 +276,10 @@ func (s *HTTPServer) AddNoiseData(data map[string]interface{}) {
 		Time:         t,
 	})
 
-	// 限制噪音数据的大小，只保留最近的1000条
-	if len(s.noiseData) > 1000 {
-		s.noiseData = s.noiseData[len(s.noiseData)-1000:]
+	if len(s.noiseData) > maxNoiseDataEntries {
+		s.noiseData = s.noiseData[len(s.noiseData)-maxNoiseDataEntries:]
 	}
 
-	// 维护最近1秒的噪音数据
 	s.recentNoiseData = append(s.recentNoiseData, NoiseData{
 		Timestamp:    timestamp,
 		LowFreqRatio: lowFreqRatio,
@@ -348,7 +288,6 @@ func (s *HTTPServer) AddNoiseData(data map[string]interface{}) {
 		Time:         t,
 	})
 
-	// 移除1秒前的数据
 	oneSecondAgo := time.Now().Add(-1 * time.Second)
 	var filteredData []NoiseData
 	for _, d := range s.recentNoiseData {
@@ -358,31 +297,23 @@ func (s *HTTPServer) AddNoiseData(data map[string]interface{}) {
 	}
 	s.recentNoiseData = filteredData
 
-	// 将噪音数据持久化到文件
 	s.SaveNoiseDataToFile()
 }
 
-// SaveNoiseDataToFile 将噪音数据保存到文件
 func (s *HTTPServer) SaveNoiseDataToFile() {
-	// 注意：这里不需要再获取dataMutex锁，因为调用此函数的AddNoiseData已经持有了锁
-
-	// 将噪音数据转换为JSON
 	data, err := json.Marshal(s.noiseData)
 	if err != nil {
-		logger.Log("Error marshaling noise data: %v", err)
+		logger.Info("Error marshaling noise data: %v", err)
 		return
 	}
 
-	// 写入文件
-	err = ioutil.WriteFile(s.dataFile, data, 0644)
+	err = ioutil.WriteFile(s.dataFilePath, data, 0644)
 	if err != nil {
-		logger.Log("Error writing noise data to file: %v", err)
+		logger.Info("Error writing noise data to file: %v", err)
 		return
 	}
-
 }
 
-// AddDetectionLog 添加检测日志
 func (s *HTTPServer) AddDetectionLog(message string, logType string) {
 	s.dataMutex.Lock()
 	defer s.dataMutex.Unlock()
@@ -394,40 +325,32 @@ func (s *HTTPServer) AddDetectionLog(message string, logType string) {
 		Type:      logType,
 	})
 
-	// 限制日志数量，只保留最近100条
-	if len(s.detectionLogs) > 100 {
-		s.detectionLogs = s.detectionLogs[len(s.detectionLogs)-100:]
+	if len(s.detectionLogs) > maxDetectionLogs {
+		s.detectionLogs = s.detectionLogs[len(s.detectionLogs)-maxDetectionLogs:]
 	}
 }
 
-// LoadNoiseDataFromFile 从文件加载噪音数据
 func (s *HTTPServer) LoadNoiseDataFromFile() {
-	// 检查文件是否存在
-	if _, err := os.Stat(s.dataFile); os.IsNotExist(err) {
-		logger.Log("Noise data file not found, creating new one: %s", s.dataFile)
+	if _, err := os.Stat(s.dataFilePath); os.IsNotExist(err) {
+		logger.Info("Noise data file not found, creating new one: %s", s.dataFilePath)
 		return
 	}
 
-	// 读取文件
-	data, err := ioutil.ReadFile(s.dataFile)
+	data, err := ioutil.ReadFile(s.dataFilePath)
 	if err != nil {
-		logger.Log("Error reading noise data from file: %v", err)
+		logger.Info("Error reading noise data from file: %v", err)
 		return
 	}
 
-	// 解析JSON
 	var noiseData []NoiseData
 	err = json.Unmarshal(data, &noiseData)
 	if err != nil {
-		logger.Log("Error unmarshaling noise data: %v", err)
+		logger.Info("Error unmarshaling noise data: %v", err)
 		return
 	}
 
-	// 加锁保护噪音数据
 	s.dataMutex.Lock()
 	defer s.dataMutex.Unlock()
-
-	// 设置噪音数据
 	s.noiseData = noiseData
-	logger.Log("Loaded %d noise data entries from file: %s", len(noiseData), s.dataFile)
+	logger.Info("Loaded %d noise data entries from file: %s", len(noiseData), s.dataFilePath)
 }

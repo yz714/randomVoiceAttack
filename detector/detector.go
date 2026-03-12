@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"gonum.org/v1/gonum/dsp/fourier"
@@ -28,7 +29,7 @@ type DetectorConfig struct {
 
 type DetectionLog struct {
 	Message string
-	Type    string // "detection", "playback", "info"
+	Type    string
 }
 
 var (
@@ -37,15 +38,24 @@ var (
 	NoiseDataChan    = make(chan map[string]interface{}, 100)
 	DetectionLogChan = make(chan DetectionLog, 100)
 	Debug            = false
-	config           = DetectorConfig{
+	detectorConfig   = DetectorConfig{
 		VolumeThreshold:       0.005,
 		LowFreqRatioThreshold: 0.015,
 		TotalEnergyThreshold:  0.01,
 	}
+	configMutex sync.RWMutex
 )
 
 func SetDetectorConfig(cfg DetectorConfig) {
-	config = cfg
+	configMutex.Lock()
+	defer configMutex.Unlock()
+	detectorConfig = cfg
+}
+
+func getDetectorConfig() DetectorConfig {
+	configMutex.RLock()
+	defer configMutex.RUnlock()
+	return detectorConfig
 }
 
 func calculateVolumeAndMax(samples []float64) (float64, float64) {
@@ -160,7 +170,8 @@ func detectLowFrequency(samples []float64) bool {
 		}
 	}
 
-	if totalEnergy > config.TotalEnergyThreshold {
+	cfg := getDetectorConfig()
+	if totalEnergy > cfg.TotalEnergyThreshold {
 		lowFreqRatio := lowFreqEnergy / totalEnergy
 		if Debug {
 			fmt.Printf("Low frequency ratio: %f, Total energy: %f, Volume: %f, Max sample: %f\n", lowFreqRatio, totalEnergy, volume, maxSample)
@@ -177,7 +188,7 @@ func detectLowFrequency(samples []float64) bool {
 		default:
 		}
 
-		detected := volume > config.VolumeThreshold && lowFreqRatio > config.LowFreqRatioThreshold
+		detected := volume > cfg.VolumeThreshold && lowFreqRatio > cfg.LowFreqRatioThreshold
 		if detected {
 			select {
 			case DetectionLogChan <- DetectionLog{

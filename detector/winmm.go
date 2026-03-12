@@ -2,13 +2,16 @@ package detector
 
 import (
 	"fmt"
+	"sync"
 	"syscall"
 	"time"
 	"unsafe"
 )
 
 const (
-	WAVE_FORMAT_PCM = 1
+	WAVE_FORMAT_PCM       = 1
+	defaultRecordingDuration = 100 * time.Millisecond
+	defaultGain             = 500.0
 )
 
 type WAVEFORMATEX struct {
@@ -49,44 +52,45 @@ type WAVEHDR struct {
 	reserved        uintptr
 }
 
-// 保持音频设备打开的全局变量
-var globalWaveIn HWAVEIN
-var isDeviceOpen bool = false
+var (
+	waveInHandle HWAVEIN
+	deviceOpen   bool = false
+	deviceMutex  sync.Mutex
+)
 
 // 从麦克风读取音频数据
 func readFromMicrophoneWinMM() ([]float64, error) {
-	// 定义音频格式
+	deviceMutex.Lock()
+	defer deviceMutex.Unlock()
+
 	format := WAVEFORMATEX{
 		wFormatTag:      WAVE_FORMAT_PCM,
 		nChannels:       1,
 		nSamplesPerSec:  uint32(sampleRate),
-		nAvgBytesPerSec: uint32(sampleRate * 2), // 16-bit PCM
+		nAvgBytesPerSec: uint32(sampleRate * 2),
 		nBlockAlign:     2,
 		wBitsPerSample:  16,
 		cbSize:          0,
 	}
 
-	// 如果设备还没打开，打开它
-	if !isDeviceOpen {
+	if !deviceOpen {
 		result, _, err := waveInOpen.Call(
-			uintptr(unsafe.Pointer(&globalWaveIn)),
-			0, // 默认设备
+			uintptr(unsafe.Pointer(&waveInHandle)),
+			0,
 			uintptr(unsafe.Pointer(&format)),
 			0,
 			0,
-			0x00020000, // CALLBACK_NULL
+			0x00020000,
 		)
 
 		if result != 0 {
 			return nil, fmt.Errorf("waveInOpen failed: %v, result: %d", err, result)
 		}
-		isDeviceOpen = true
+		deviceOpen = true
 	}
 
-	// 分配缓冲区 - 每次都创建新的缓冲区
-	bufferSize := uint32(sampleRate * 2) // 1秒的缓冲区
+	bufferSize := uint32(sampleRate * 2)
 	buffer := make([]byte, bufferSize)
-	// 清空缓冲区，确保没有残留数据
 	for i := range buffer {
 		buffer[i] = 0
 	}
@@ -97,65 +101,51 @@ func readFromMicrophoneWinMM() ([]float64, error) {
 		dwFlags:         0,
 	}
 
-	// 准备缓冲区
-	result, _, err := waveInPrepareHeader.Call(uintptr(globalWaveIn), uintptr(unsafe.Pointer(&hdr)), uintptr(unsafe.Sizeof(hdr)))
+	result, _, err := waveInPrepareHeader.Call(uintptr(waveInHandle), uintptr(unsafe.Pointer(&hdr)), uintptr(unsafe.Sizeof(hdr)))
 	if result != 0 {
 		return nil, fmt.Errorf("waveInPrepareHeader failed: %v, result: %d", err, result)
 	}
 
-	// 添加缓冲区
-	result, _, err = waveInAddBuffer.Call(uintptr(globalWaveIn), uintptr(unsafe.Pointer(&hdr)), uintptr(unsafe.Sizeof(hdr)))
+	result, _, err = waveInAddBuffer.Call(uintptr(waveInHandle), uintptr(unsafe.Pointer(&hdr)), uintptr(unsafe.Sizeof(hdr)))
 	if result != 0 {
-		waveInUnprepareHeader.Call(uintptr(globalWaveIn), uintptr(unsafe.Pointer(&hdr)), uintptr(unsafe.Sizeof(hdr)))
+		waveInUnprepareHeader.Call(uintptr(waveInHandle), uintptr(unsafe.Pointer(&hdr)), uintptr(unsafe.Sizeof(hdr)))
 		return nil, fmt.Errorf("waveInAddBuffer failed: %v, result: %d", err, result)
 	}
 
-	// 开始录音
-	result, _, err = waveInStart.Call(uintptr(globalWaveIn))
+	result, _, err = waveInStart.Call(uintptr(waveInHandle))
 	if result != 0 {
-		waveInReset.Call(uintptr(globalWaveIn))
-		waveInUnprepareHeader.Call(uintptr(globalWaveIn), uintptr(unsafe.Pointer(&hdr)), uintptr(unsafe.Sizeof(hdr)))
+		waveInReset.Call(uintptr(waveInHandle))
+		waveInUnprepareHeader.Call(uintptr(waveInHandle), uintptr(unsafe.Pointer(&hdr)), uintptr(unsafe.Sizeof(hdr)))
 		return nil, fmt.Errorf("waveInStart failed: %v, result: %d", err, result)
 	}
 
-	// 固定时长录音 - 确保能够录制到足够的数据
-	recordingDuration := 100 * time.Millisecond
-	time.Sleep(recordingDuration)
+	time.Sleep(defaultRecordingDuration)
 
-	// 停止录音
-	result, _, err = waveInStop.Call(uintptr(globalWaveIn))
-	if result != 0 {
-		// 即使停止失败，也继续处理
+	result, _, err = waveInStop.Call(uintptr(waveInHandle))
+	if result != 0 && Debug {
+		fmt.Printf("Warning: waveInStop failed: %v, result: %d\n", err, result)
 	}
 
-	// 重置录音设备
-	result, _, err = waveInReset.Call(uintptr(globalWaveIn))
-	if result != 0 {
-		// 即使重置失败，也继续处理
+	result, _, err = waveInReset.Call(uintptr(waveInHandle))
+	if result != 0 && Debug {
+		fmt.Printf("Warning: waveInReset failed: %v, result: %d\n", err, result)
 	}
 
-	// 打印实际录制的字节数
 	if Debug {
 		fmt.Printf("Bytes recorded: %d\n", hdr.dwBytesRecorded)
 	}
 
-	// 将16-bit PCM数据转换为float64
 	var samples []float64
 	if hdr.dwBytesRecorded > 0 {
-		// 只取前sampleSize个样本，或者所有可用样本（取较小者）
 		numSamples := int(hdr.dwBytesRecorded / 2)
 		if numSamples > sampleSize {
 			numSamples = sampleSize
 		}
 		samples = make([]float64, numSamples)
-		// 音量增益倍数
-		gain := 500.0
+		gain := defaultGain
 		for i := 0; i < numSamples*2; i += 2 {
-			// 小端格式
 			sample := int16(buffer[i]) | int16(buffer[i+1])<<8
-			// 转换为[-1.0, 1.0]的float64并应用增益
 			samples[i/2] = float64(sample) / 32768.0 * gain
-			// 确保值在[-1.0, 1.0]范围内
 			if samples[i/2] > 1.0 {
 				samples[i/2] = 1.0
 			} else if samples[i/2] < -1.0 {
@@ -163,12 +153,28 @@ func readFromMicrophoneWinMM() ([]float64, error) {
 			}
 		}
 	} else {
-		// 如果没有录制到数据，返回空数组
 		samples = make([]float64, 0)
 	}
 
-	// 取消准备缓冲区
-	waveInUnprepareHeader.Call(uintptr(globalWaveIn), uintptr(unsafe.Pointer(&hdr)), uintptr(unsafe.Sizeof(hdr)))
+	waveInUnprepareHeader.Call(uintptr(waveInHandle), uintptr(unsafe.Pointer(&hdr)), uintptr(unsafe.Sizeof(hdr)))
 
 	return samples, nil
+}
+
+func CloseAudioDevice() error {
+	deviceMutex.Lock()
+	defer deviceMutex.Unlock()
+
+	if !deviceOpen {
+		return nil
+	}
+
+	result, _, err := waveInClose.Call(uintptr(waveInHandle))
+	if result != 0 {
+		return fmt.Errorf("waveInClose failed: %v, result: %d", err, result)
+	}
+
+	deviceOpen = false
+	waveInHandle = 0
+	return nil
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"math/rand"
 	"os"
 	"os/signal"
 	"syscall"
@@ -47,8 +46,6 @@ func (app *App) Initialize() error {
 		return fmt.Errorf("error initializing logger: %v", err)
 	}
 
-	rand.Seed(time.Now().UnixNano())
-
 	audioFiles, err := utils.GetAudioFiles(app.cfg.AudioDirectory)
 	if err != nil {
 		return fmt.Errorf("error getting audio files: %v", err)
@@ -81,7 +78,7 @@ func (app *App) collectNoiseData() {
 	for {
 		select {
 		case <-app.ctx.Done():
-			logger.Log("Noise data collection stopped")
+			logger.Info("Noise data collection stopped")
 			return
 		case data := <-detector.NoiseDataChan:
 			app.httpServer.AddNoiseData(data)
@@ -97,11 +94,11 @@ func (app *App) RunDetectionLoop() {
 	quit := make(chan os.Signal, 2)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
-	logger.Log("Found %d audio files in %s directory", len(app.audioCtrl.AudioFiles), app.cfg.AudioDirectory)
-	logger.Log("Starting random voice attack...")
-	logger.Log("Press Ctrl+C to stop (press again to force exit)")
-	logger.Log("Listening for low frequency noise...")
-	logger.Log("Bluetooth heartbeat started")
+	logger.Info("Found %d audio files in %s directory", len(app.audioCtrl.AudioFiles), app.cfg.AudioDirectory)
+	logger.Info("Starting random voice attack...")
+	logger.Info("Press Ctrl+C to stop (press again to force exit)")
+	logger.Info("Listening for low frequency noise...")
+	logger.Info("Bluetooth heartbeat started")
 
 	go func() {
 		for {
@@ -119,21 +116,24 @@ func (app *App) RunDetectionLoop() {
 		case <-quit:
 			select {
 			case <-app.ctx.Done():
-				logger.Log("Force exit!")
+				logger.Info("Force exit!")
 				os.Exit(1)
 			default:
-				logger.Log("Stopping... (press Ctrl+C again to force exit)")
+				logger.Info("Stopping... (press Ctrl+C again to force exit)")
 				app.cancel()
 			}
 		case <-app.ctx.Done():
 			time.Sleep(100 * time.Millisecond)
-			logger.Log("Program stopped gracefully")
+			logger.Info("Program stopped gracefully")
 			return
 		}
 	}
 }
 
 func (app *App) Cleanup() {
+	if err := detector.CloseAudioDevice(); err != nil {
+		logger.Info("Error closing audio device: %v", err)
+	}
 	logger.Close()
 }
 
@@ -175,7 +175,7 @@ func main() {
 	defer app.Cleanup()
 
 	if err := app.Initialize(); err != nil {
-		logger.Log("%v", err)
+		logger.Info("%v", err)
 		return
 	}
 

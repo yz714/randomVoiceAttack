@@ -54,21 +54,21 @@ func (ac *AudioController) PlayRandomAudios(ctx context.Context) {
 	for i := 0; i < ac.playCount; i++ {
 		select {
 		case <-ctx.Done():
-			logger.Log("Playback cancelled")
+			logger.Info("Playback cancelled")
 			return
 		default:
 		}
 
 		randomFile := ac.AudioFiles[rand.Intn(len(ac.AudioFiles))]
-		logger.Log("Playing (%d/%d): %s", i+1, ac.playCount, randomFile)
+		logger.Info("Playing (%d/%d): %s", i+1, ac.playCount, randomFile)
 
 		err := player.PlayAudioWithContext(ctx, randomFile)
 		if err != nil {
 			if err == context.Canceled {
-				logger.Log("Playback cancelled")
+				logger.Info("Playback cancelled")
 				return
 			}
-			logger.Log("Error playing audio: %v", err)
+			logger.Info("Error playing audio: %v", err)
 			continue
 		}
 	}
@@ -88,15 +88,15 @@ func (ac *AudioController) DetectAndPlay(ctx context.Context) (bool, error) {
 
 	hasLowFreq, err := detector.DetectLowFrequencySound()
 	if err != nil {
-		logger.Log("Error detecting sound: %v", err)
+		logger.Info("Error detecting sound: %v", err)
 		time.Sleep(100 * time.Millisecond)
 		return false, err
 	}
 
 	if hasLowFreq {
-		logger.Log("Low frequency noise detected! Playing audio...")
+		logger.Info("Low frequency noise detected! Playing audio...")
 		ac.PlayRandomAudios(ctx)
-		logger.Log("Audio playback completed. Listening for low frequency noise...")
+		logger.Info("Audio playback completed. Listening for low frequency noise...")
 	}
 
 	select {
