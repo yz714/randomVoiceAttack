@@ -26,26 +26,30 @@ type PlaybackController interface {
 
 // AudioController manages audio playback operations.
 type AudioController struct {
-	AudioFiles   []string
-	playCount    int
-	isPlaying    bool
-	playMutex    sync.Mutex
-	playCtx      context.Context
-	playCancel   context.CancelFunc
-	cancelMutex  sync.Mutex
-	isStopped    bool
-	stoppedMutex sync.Mutex
+	AudioFiles      []string
+	playCount       int
+	isPlaying       bool
+	playMutex       sync.Mutex
+	playCtx         context.Context
+	playCancel      context.CancelFunc
+	cancelMutex     sync.Mutex
+	isStopped       bool
+	stoppedMutex    sync.Mutex
+	inCooldown      bool
+	cooldownMutex   sync.Mutex
 }
 
 // NewAudioController creates a new AudioController instance.
 func NewAudioController(audioFiles []string, playCount int) *AudioController {
 	return &AudioController{
-		AudioFiles:   audioFiles,
-		playCount:    playCount,
-		isPlaying:    false,
-		playMutex:    sync.Mutex{},
-		isStopped:    false,
-		stoppedMutex: sync.Mutex{},
+		AudioFiles:    audioFiles,
+		playCount:     playCount,
+		isPlaying:     false,
+		playMutex:     sync.Mutex{},
+		isStopped:     false,
+		stoppedMutex:  sync.Mutex{},
+		inCooldown:    false,
+		cooldownMutex: sync.Mutex{},
 	}
 }
 
@@ -61,6 +65,20 @@ func (ac *AudioController) SetStopped(stopped bool) {
 	ac.stoppedMutex.Lock()
 	defer ac.stoppedMutex.Unlock()
 	ac.isStopped = stopped
+}
+
+// IsInCooldown returns whether the controller is in cooldown period.
+func (ac *AudioController) IsInCooldown() bool {
+	ac.cooldownMutex.Lock()
+	defer ac.cooldownMutex.Unlock()
+	return ac.inCooldown
+}
+
+// SetInCooldown sets the cooldown state.
+func (ac *AudioController) SetInCooldown(inCooldown bool) {
+	ac.cooldownMutex.Lock()
+	defer ac.cooldownMutex.Unlock()
+	ac.inCooldown = inCooldown
 }
 
 // IsPlaying returns whether audio is currently playing.
@@ -80,6 +98,7 @@ func (ac *AudioController) SetPlaying(playing bool) {
 // Stop stops the currently playing audio by canceling the context.
 func (ac *AudioController) Stop() {
 	ac.SetStopped(true)
+	ac.SetInCooldown(false)
 	ac.cancelMutex.Lock()
 	if ac.playCancel != nil {
 		ac.playCancel()
@@ -142,6 +161,12 @@ func (ac *AudioController) DetectAndPlay(ctx context.Context) (bool, error) {
 
 	if ac.IsStopped() {
 		ac.SetStopped(false)
+		time.Sleep(100 * time.Millisecond)
+		return false, nil
+	}
+
+	if ac.IsInCooldown() {
+		time.Sleep(100 * time.Millisecond)
 		return false, nil
 	}
 
@@ -160,27 +185,31 @@ func (ac *AudioController) DetectAndPlay(ctx context.Context) (bool, error) {
 	if hasLowFreq {
 		logger.Info("Low frequency noise detected! Playing audio...")
 		ac.PlayRandomAudios(ctx)
-
+		
 		select {
 		case <-ctx.Done():
 			return hasLowFreq, nil
 		default:
 		}
-
+		
 		logger.Info("Audio playback completed. Entering cooldown period...")
+		ac.SetInCooldown(true)
 
-		select {
-		case <-ctx.Done():
-			return hasLowFreq, nil
-		case <-time.After(3 * time.Second):
-			logger.Info("Cooldown period ended. Listening for low frequency noise...")
-		}
+		go func() {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(3 * time.Second):
+				ac.SetInCooldown(false)
+				logger.Info("Cooldown period ended. Listening for low frequency noise...")
+			}
+		}()
 	}
 
 	select {
 	case <-ctx.Done():
 		return hasLowFreq, nil
-	case <-time.After(1000 * time.Millisecond):
+	case <-time.After(100 * time.Millisecond):
 	}
 
 	return hasLowFreq, nil
