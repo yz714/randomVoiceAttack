@@ -81,7 +81,7 @@ func (s *HTTPServer) Start(ctx context.Context) {
 				needsSave := s.needsSave
 				s.needsSave = false
 				s.dataMutex.Unlock()
-				
+
 				if needsSave {
 					s.SaveNoiseDataToFile()
 				}
@@ -246,10 +246,27 @@ func (s *HTTPServer) handleStopAudio(w http.ResponseWriter, r *http.Request) {
 
 func (s *HTTPServer) AddNoiseData(data map[string]interface{}) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	lowFreqRatio, _ := data["low_freq_ratio"].(float64)
-	volume, _ := data["volume"].(float64)
-	maxSample, _ := data["max_sample"].(float64)
-	t, _ := data["time"].(time.Time)
+	
+	lowFreqRatio, ok := data["low_freq_ratio"].(float64)
+	if !ok {
+		logger.Warn("Invalid type for low_freq_ratio, expected float64")
+	}
+	
+	volume, ok := data["volume"].(float64)
+	if !ok {
+		logger.Warn("Invalid type for volume, expected float64")
+	}
+	
+	maxSample, ok := data["max_sample"].(float64)
+	if !ok {
+		logger.Warn("Invalid type for max_sample, expected float64")
+	}
+	
+	t, ok := data["time"].(time.Time)
+	if !ok {
+		logger.Warn("Invalid type for time, expected time.Time")
+		t = time.Now()
+	}
 
 	s.dataMutex.Lock()
 	defer s.dataMutex.Unlock()
@@ -263,7 +280,9 @@ func (s *HTTPServer) AddNoiseData(data map[string]interface{}) {
 	})
 
 	if len(s.noiseData) > maxNoiseDataEntries {
-		s.noiseData = s.noiseData[len(s.noiseData)-maxNoiseDataEntries:]
+		newData := make([]NoiseData, maxNoiseDataEntries)
+		copy(newData, s.noiseData[len(s.noiseData)-maxNoiseDataEntries:])
+		s.noiseData = newData
 	}
 
 	s.recentNoiseData = append(s.recentNoiseData, NoiseData{
@@ -294,7 +313,7 @@ func (s *HTTPServer) SaveNoiseDataToFile() {
 	}
 
 	tempFilePath := s.dataFilePath + ".tmp"
-	
+
 	err = ioutil.WriteFile(tempFilePath, data, 0644)
 	if err != nil {
 		logger.Error("Error writing noise data to temp file: %v", err)
@@ -320,7 +339,9 @@ func (s *HTTPServer) AddDetectionLog(message string, logType string) {
 	})
 
 	if len(s.detectionLogs) > maxDetectionLogs {
-		s.detectionLogs = s.detectionLogs[len(s.detectionLogs)-maxDetectionLogs:]
+		newLogs := make([]DetectionLog, maxDetectionLogs)
+		copy(newLogs, s.detectionLogs[len(s.detectionLogs)-maxDetectionLogs:])
+		s.detectionLogs = newLogs
 	}
 }
 

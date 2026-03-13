@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -23,6 +24,7 @@ type App struct {
 	cancel     context.CancelFunc
 	audioCtrl  *controller.AudioController
 	httpServer *services.HTTPServer
+	wg         sync.WaitGroup
 }
 
 func NewApp(cfg config.Config) *App {
@@ -71,10 +73,12 @@ func (app *App) StartServices() {
 	}, app.audioCtrl.AudioFiles, app.audioCtrl)
 	app.httpServer.Start(app.ctx)
 
+	app.wg.Add(1)
 	go app.collectNoiseData()
 }
 
 func (app *App) collectNoiseData() {
+	defer app.wg.Done()
 	for {
 		select {
 		case <-app.ctx.Done():
@@ -84,8 +88,6 @@ func (app *App) collectNoiseData() {
 			app.httpServer.AddNoiseData(data)
 		case log := <-detector.DetectionLogChan:
 			app.httpServer.AddDetectionLog(log.Message, log.Type)
-		default:
-			time.Sleep(100 * time.Millisecond)
 		}
 	}
 }
@@ -100,7 +102,9 @@ func (app *App) RunDetectionLoop() {
 	logger.Info("Listening for low frequency noise...")
 	logger.Info("Bluetooth heartbeat started")
 
+	app.wg.Add(1)
 	go func() {
+		defer app.wg.Done()
 		for {
 			select {
 			case <-app.ctx.Done():
@@ -131,6 +135,10 @@ func (app *App) RunDetectionLoop() {
 }
 
 func (app *App) Cleanup() {
+	logger.Info("Waiting for all goroutines to finish...")
+	app.wg.Wait()
+	logger.Info("All goroutines finished")
+	
 	if err := detector.CloseAudioDevice(); err != nil {
 		logger.Info("Error closing audio device: %v", err)
 	}

@@ -7,7 +7,9 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gonum.org/v1/gonum/dsp/fourier"
@@ -27,6 +29,7 @@ const (
 	sampleRate      = 44100
 	sampleSize      = 1024
 	maxFileSize     = 100 * 1024 * 1024
+	maxRecordFiles  = 100
 )
 
 type DetectorConfig struct {
@@ -40,20 +43,25 @@ type DetectionLog struct {
 	Type    string
 }
 
+const (
+	noiseDataChanSize    = 1000
+	detectionLogChanSize = 500
+)
+
 var (
-	recordDir        = "records"
-	useMicrophone    = true
-	NoiseDataChan    = make(chan map[string]interface{}, 100)
-	DetectionLogChan = make(chan DetectionLog, 100)
-	Debug            = false
-	detectorConfig   = DetectorConfig{
+	recordDir             = "records"
+	useMicrophone         = true
+	NoiseDataChan         = make(chan map[string]interface{}, noiseDataChanSize)
+	DetectionLogChan      = make(chan DetectionLog, detectionLogChanSize)
+	Debug                 = false
+	detectorConfig        = DetectorConfig{
 		VolumeThreshold:       0.005,
 		LowFreqRatioThreshold: 0.015,
 		TotalEnergyThreshold:  0.01,
 	}
-	configMutex sync.RWMutex
-	droppedNoiseDataCount uint64
-	droppedLogCount       uint64
+	configMutex           sync.RWMutex
+	droppedNoiseDataCount atomic.Uint64
+	droppedLogCount       atomic.Uint64
 )
 
 func SetDetectorConfig(cfg DetectorConfig) {
@@ -116,9 +124,9 @@ func getSamples() ([]float64, error) {
 				select {
 				case NoiseDataChan <- noiseData:
 				default:
-					droppedNoiseDataCount++
+					count := droppedNoiseDataCount.Add(1)
 					if Debug {
-						fmt.Printf("Warning: Noise data channel full, dropped %d entries\n", droppedNoiseDataCount)
+						fmt.Printf("Warning: Noise data channel full, dropped %d entries\n", count)
 					}
 				}
 			}
@@ -200,9 +208,9 @@ func detectLowFrequency(samples []float64) bool {
 		select {
 		case NoiseDataChan <- noiseData:
 		default:
-			droppedNoiseDataCount++
+			count := droppedNoiseDataCount.Add(1)
 			if Debug {
-				fmt.Printf("Warning: Noise data channel full, dropped %d entries\n", droppedNoiseDataCount)
+				fmt.Printf("Warning: Noise data channel full, dropped %d entries\n", count)
 			}
 		}
 
@@ -214,9 +222,9 @@ func detectLowFrequency(samples []float64) bool {
 				Type:    "detection",
 			}:
 			default:
-				droppedLogCount++
+				count := droppedLogCount.Add(1)
 				if Debug {
-					fmt.Printf("Warning: Detection log channel full, dropped %d entries\n", droppedLogCount)
+					fmt.Printf("Warning: Detection log channel full, dropped %d entries\n", count)
 				}
 			}
 		}
@@ -237,6 +245,12 @@ func SaveNoiseSample(samples []float64) error {
 	timestamp := time.Now().Format("20060102_150405")
 	filename := filepath.Join(recordDir, fmt.Sprintf("noise_%s.wav", timestamp))
 
+	if err := cleanupOldRecordings(recordDir); err != nil {
+		if Debug {
+			fmt.Printf("Warning: Failed to cleanup old recordings: %v\n", err)
+		}
+	}
+
 	totalSize, err := getDirSize(recordDir)
 	if err != nil {
 		return err
@@ -255,7 +269,7 @@ func SaveNoiseSample(samples []float64) error {
 	defer file.Close()
 
 	numSamples := len(samples)
-	sampleRateVal := 44100
+	sampleRateVal := sampleRate
 	numChannels := 1
 	bitsPerSample := 16
 	dataSize := numSamples * numChannels * bitsPerSample / 8
@@ -375,6 +389,38 @@ func deleteOldestFile(dir string) error {
 
 	if oldestFile != "" {
 		return os.Remove(oldestFile)
+	}
+
+	return nil
+}
+
+func cleanupOldRecordings(dir string) error {
+	files, err := ioutil.ReadDir(dir)
+	if err != nil {
+		return err
+	}
+
+	var wavFiles []os.FileInfo
+	for _, file := range files {
+		if !file.IsDir() && filepath.Ext(file.Name()) == ".wav" {
+			wavFiles = append(wavFiles, file)
+		}
+	}
+
+	if len(wavFiles) > maxRecordFiles {
+		sort.Slice(wavFiles, func(i, j int) bool {
+			return wavFiles[i].ModTime().Before(wavFiles[j].ModTime())
+		})
+
+		filesToDelete := len(wavFiles) - maxRecordFiles
+		for i := 0; i < filesToDelete; i++ {
+			filePath := filepath.Join(dir, wavFiles[i].Name())
+			if err := os.Remove(filePath); err != nil {
+				if Debug {
+					fmt.Printf("Warning: Failed to delete old recording %s: %v\n", filePath, err)
+				}
+			}
+		}
 	}
 
 	return nil

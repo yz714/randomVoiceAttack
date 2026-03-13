@@ -33,7 +33,7 @@
 - 在 `main.go` 的 `Cleanup()` 中调用
 - 使用 `deviceMutex` 互斥锁保护音频设备访问
 
-### 3. 全局变量并发不安全 ⚠️ v0.2.0部分完成
+### 3. 全局变量并发不安全 ✅ v0.7.3已完成
 **位置**: `detector/detector.go:34-45`, `detector/winmm.go:53-54`
 **问题**: 多个全局变量（`config`, `Debug`, `NoiseDataChan`, `DetectionLogChan`, `globalWaveIn`, `isDeviceOpen`）没有并发保护
 **风险**:
@@ -41,10 +41,11 @@
 - 不可预测的行为
 - 调试困难
 **改进**: 
-- 为配置变量添加 `configMutex` 读写锁
-- 添加 `getDetectorConfig()` 线程安全访问函数
-- 为音频设备添加 `deviceMutex` 互斥锁
-- 变量重命名：`config` → `detectorConfig`，`globalWaveIn` → `waveInHandle`，`isDeviceOpen` → `deviceOpen`
+- 为配置变量添加 `configMutex` 读写锁 ✅
+- 添加 `getDetectorConfig()` 线程安全访问函数 ✅
+- 为音频设备添加 `deviceMutex` 互斥锁 ✅
+- 变量重命名：`config` → `detectorConfig`，`globalWaveIn` → `waveInHandle`，`isDeviceOpen` → `deviceOpen` ✅
+- 为 `droppedNoiseDataCount` 和 `droppedLogCount` 添加原子操作 ✅
 
 ### 4. HTTP路由注册有缺陷 ✅ v0.2.0已完成
 **位置**: `services/http.go:72`
@@ -87,24 +88,25 @@
 - 重命名 `Log()` 为 `Info()`
 - 日志文件名固定为 `logs/voice_attack.log`
 
-### 8. 魔法数字和硬编码值 ⚠️ v0.2.0部分完成
+### 8. 魔法数字和硬编码值 ✅ v0.7.3已完成
 **位置**: 多处
 **问题**: 
 - `detector/detector.go:20`: `maxFileSize = 100 * 1024 * 1024` ✅ 已是常量
 - `detector/winmm.go:122`: `recordingDuration := 100 * time.Millisecond` ✅ 提取为 `defaultRecordingDuration`
 - `services/http.go:338`: `len(s.noiseData) > 1000` ✅ 提取为 `maxNoiseDataEntries`
 - `detector/winmm.go:152`: `gain := 500.0` ✅ 提取为 `defaultGain`
-- `config/config.go`: 添加配置验证常量
+- `config/config.go`: 添加配置验证常量 ✅
+- `detector/detector.go:272`: `sampleRateVal := 44100` ✅ 改为使用 `sampleRate` 常量
 **风险**:
 - 难以调整参数
 - 代码可读性差
 **改进**: 提取为配置项或常量
 
-### 9. 错误处理不当 ⚠️ v0.2.0部分完成
+### 9. 错误处理不当 ✅ v0.7.2已完成
 **位置**: 多处
 **问题**:
 - `detector/winmm.go:126-135`: 忽略 `waveInStop` 和 `waveInReset` 的错误 ✅ 添加了Debug模式警告日志
-- `services/http.go:319-322`: 类型断言使用 `_` 忽略错误
+- `services/http.go:249-252`: 类型断言使用 `_` 忽略错误 ✅ 添加了类型检查和警告日志
 - `detector/detector.go:96-99`: channel写入直接丢弃 ✅ 添加了丢弃计数和Debug警告
 **风险**:
 - 错误被静默忽略
@@ -113,6 +115,7 @@
 **改进**: 
 - 添加警告日志
 - 添加丢弃数据计数器
+- 改进类型断言错误处理，添加类型验证和警告日志
 
 ### 10. 性能问题 - 频繁的文件I/O ✅ v0.4.0已完成
 **位置**: `services/http.go:362`
@@ -130,12 +133,13 @@
 
 ## 🟢 轻微问题
 
-### 11. 命名不规范 ⚠️ v0.2.0部分完成
+### 11. 命名不规范 ✅ v0.7.3已完成
 **位置**: 多处
 **问题**:
 - `detector/detector.go:34-45`: 全局变量名太普通（`config`, `Debug`）✅ `config`→`detectorConfig`
 - `services/http.go:49`: `dataFile` 应该是 `dataFilePath` ✅ 已重命名
 - `detector/winmm.go:52`: `globalWaveIn` 前缀冗余 ✅ `globalWaveIn`→`waveInHandle`，`isDeviceOpen`→`deviceOpen`
+- `detector/detector.go`: 为全局变量添加适当对齐 ✅
 **改进**: 使用更具描述性的命名
 
 ### 12. 缺少接口定义 ✅ v0.5.0已完成
@@ -308,6 +312,110 @@
 - ✅ 问题13 - 测试覆盖不足，部分完成
 - ✅ detector包已有完善的测试覆盖
 
+### v0.7.1 - 2026-03-13 - 长时间运行稳定性提升
+- ✅ 问题21 - 修复切片内存泄漏风险（noiseData和detectionLogs）
+- ✅ 问题22 - records目录文件管理（限制最多100个文件）
+- ✅ 问题23 - 通道数据丢失问题（增加缓冲区大小）
+- ✅ 问题24 - 噪声数据切片容量管理
+- ✅ 问题25 - 检测日志无限增长（增加缓冲区大小）
+- ✅ 问题26 - goroutine泄漏风险（使用WaitGroup完整管理）
+- ✅ 优化collectNoiseData()，移除不必要的sleep
+
+### v0.7.2 - 2026-03-13 - 错误处理改进
+- ✅ 问题9 - 错误处理不当
+- ✅ 改进services/http.go中类型断言的错误处理
+- ✅ 添加类型检查和警告日志
+- ✅ 确保类型转换失败时有日志记录
+
+### v0.7.3 - 2026-03-13 - 代码质量提升
+- ✅ 问题3 - 全局变量并发不安全（为dropped计数器添加原子操作）
+- ✅ 问题8 - 魔法数字和硬编码值（使用已有sampleRate常量）
+- ✅ 问题11 - 命名不规范（全局变量对齐优化）
+
+### v0.8.0 - 2026-03-13 - v1.0.0预备版
+- ✅ 完善用户文档（完整的README.md）
+- ✅ 修正配置文件示例和说明
+- ✅ 更新默认配置值（res目录、9090端口）
+- ✅ 所有测试通过，代码质量稳定
+- ✅ 准备v1.0.0发布
+
+---
+
+---
+
+## 🔴 严重问题（长时间运行）
+
+### 21. recentNoiseData切片处理的内存泄漏风险 ✅ v0.8.0已完成
+**位置**: `services/http.go:265-269`
+**问题**:
+- `noiseData`切片截断时底层数组不释放
+- `detectionLogs`切片截断时底层数组不释放
+- 长时间运行会导致内存泄漏
+
+**改进**:
+- 修复了`noiseData`切片截断问题，使用新切片复制数据
+- 修复了`detectionLogs`切片截断问题，使用新切片复制数据
+- 确保旧数据可以被GC回收
+
+### 22. records目录文件管理问题 ✅ v0.8.0已完成
+**位置**: `detector/detector.go:232-425`
+**问题**: 
+- 没有文件数量限制
+- 可能导致磁盘耗尽
+
+**改进**:
+- 添加了`maxRecordFiles`常量（100个文件）
+- 添加了`cleanupOldRecordings()`函数
+- 每次保存新录音前清理旧文件
+- 按修改时间排序，删除最旧的文件
+
+### 26. goroutine泄漏风险 ✅ v0.7.1已完成
+**位置**: `main.go:76-93, 105-116`
+**问题**: 
+- 之前没有完整的goroutine生命周期管理
+- 没有等待所有goroutine结束的机制
+- `collectNoiseData()`有不必要的sleep
+
+**改进**:
+- 添加了`sync.WaitGroup`来跟踪所有goroutine
+- 所有goroutine都与context正确关联
+- 优化了`collectNoiseData()`，移除了不必要的sleep
+- 在`Cleanup()`中等待所有goroutine结束
+- 确保程序退出时不会泄漏goroutine
+
+---
+
+## 🟡 中等问题（长时间运行）
+
+### 23. 通道数据丢失问题 ✅ v0.8.0已完成
+**位置**: `detector/detector.go:45-64`
+**问题**: 
+- 通道缓冲区过小（100），容易满导致数据丢失
+
+**改进**:
+- 增加了`NoiseDataChan`缓冲区从100到1000
+- 增加了`DetectionLogChan`缓冲区从100到500
+- 添加了通道大小常量定义
+
+### 24. 噪声数据切片容量管理 ✅ v0.8.0已完成
+**位置**: `services/http.go:265-269`
+**问题**:
+- 切片截断后底层数组没有释放
+- 可能造成内存碎片
+
+**改进**:
+- 使用新切片复制截断后的数据
+- 确保旧数据可以被GC回收
+
+### 25. 检测日志无限增长 ✅ v0.8.0已完成
+**位置**: `detector/detector.go:45-64`
+**问题**:
+- 日志通道缓冲区过小
+
+**改进**:
+- 增加了`DetectionLogChan`缓冲区从100到500
+- HTTP服务端的`detectionLogs`已经有100条限制
+
 ---
 
 ## 📋 优先级改进建议
@@ -315,18 +423,26 @@
 ### 立即修复 (P0)
 1. ✅ 从Git移除二进制文件
 2. ✅ 添加音频设备关闭清理
-3. ✅ 修复HTTP路由使用全局ServeMux的问题
+3. ✅ 全局变量并发不安全
+21. ✅ recentNoiseData切片内存泄漏
+22. ✅ records目录文件管理
+26. ✅ goroutine泄漏风险
 
 ### 短期改进 (P1)
-4. ⚠️ 封装全局变量，添加并发保护
+4. ✅ 封装全局变量，添加并发保护
 5. ✅ 拆分巨型函数
 6. ✅ 减少代码重复
-7. ⚠️ 改进错误处理
+7. ✅ 改进错误处理
+8. ✅ 魔法数字和硬编码值
+11. ✅ 命名不规范
+23. ✅ 通道数据丢失问题
+24. ✅ 噪声数据切片容量管理
+25. ✅ 检测日志无限增长
 
 ### 中期改进 (P2)
-8. ❌ 添加接口定义
-9. ❌ 增加测试覆盖
-10. ❌ 性能优化（减少磁盘I/O）
+8. ✅ 添加接口定义
+9. ⚠️ 增加测试覆盖
+10. ✅ 性能优化（减少磁盘I/O）
 11. ✅ 添加配置验证
 
 ### 长期改进 (P3)
@@ -339,4 +455,4 @@
 
 ## 总结
 
-这是一个功能完整的项目，通过v0.2.0版本的改进，已完成大部分P0和P1级别的问题修复，代码可维护性、稳定性和性能得到了显著提升。剩余未完成的主要是中长期改进建议。
+这是一个功能完整的项目，通过v0.2.0-v0.7.0版本的改进，已完成大部分代码质量问题的修复。新增发现的长时间运行时的潜在问题（问题21-26）需要优先修复，以确保程序在7×24小时运行时的稳定性和可靠性。
