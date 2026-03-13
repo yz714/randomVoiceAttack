@@ -209,7 +209,7 @@ func (ac *AudioController) DetectAndPlay(ctx context.Context) (bool, error) {
 	select {
 	case <-ctx.Done():
 		return hasLowFreq, nil
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(1000 * time.Millisecond):
 	}
 
 	return hasLowFreq, nil
