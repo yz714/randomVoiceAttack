@@ -114,14 +114,17 @@
 - 添加警告日志
 - 添加丢弃数据计数器
 
-### 10. 性能问题 - 频繁的文件I/O ❌ 未完成
+### 10. 性能问题 - 频繁的文件I/O ✅ v0.4.0已完成
 **位置**: `services/http.go:362`
 **问题**: `AddNoiseData` 每次都调用 `SaveNoiseDataToFile()` 写入磁盘
 **风险**:
 - 性能差
 - 磁盘磨损
 - I/O瓶颈
-**建议**: 批量写入或使用定时器周期性写入
+**改进**: 
+- 添加 `needsSave` 标志，数据变化时只设置标志不立即写入
+- 使用定时器每5秒检查并保存一次
+- 程序退出时强制保存一次
 
 ---
 
@@ -204,13 +207,16 @@
 - `AudioController` 直接嵌入 `sync.Mutex` 而不是使用指针
 - 移除了 `GetPlayMutex()` 和 `GetIsPlayingPointer()` 方法
 
-### 20. 缺少Context传播 ❌ 未完成
+### 20. 缺少Context传播 ✅ v0.3.0已完成
 **位置**: `services/http.go:186`
 **问题**: API播放音频没有使用Context
 **风险**:
 - 无法取消正在播放的音频
 - 资源泄漏
-**建议**: 使用 `PlayAudioWithContext`
+**改进**: 
+- `AudioController` 添加 `Stop()` 方法和取消播放的context管理
+- 使用 `PlayAudioWithContext` 播放音频
+- 前端停止按钮可以真正停止正在播放的音频
 
 ---
 
@@ -255,6 +261,13 @@
 - ✅ 限制终端高度，防止被图表覆盖
 - ✅ AudioController添加Stop()方法和取消播放context管理
 - ✅ HTTPServer使用统一的PlaybackController接口
+
+### v0.4.0 - 2026-03-13 - 性能优化和体验提升
+- ✅ 性能优化 - 减少频繁的文件I/O（使用定时器每5秒保存一次）
+- ✅ 前端alert替换为气泡提示（toast）
+- ✅ 终端宽度拉宽到580px，高度限制防止被覆盖
+- ✅ 统计卡片宽度自适应，按钮更紧凑
+- ✅ 停止按钮功能完善，context传播实现
 
 ---
 

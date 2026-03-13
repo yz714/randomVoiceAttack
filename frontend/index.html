@@ -320,9 +320,58 @@
 			font-weight: bold;
 			white-space: nowrap;
 		}
+		.toast-container {
+			position: fixed;
+			top: 20px;
+			right: 20px;
+			z-index: 1000;
+			display: flex;
+			flex-direction: column;
+			gap: 8px;
+		}
+		.toast {
+			padding: 12px 20px;
+			background-color: #333;
+			color: white;
+			border-radius: 6px;
+			box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+			font-size: 14px;
+			min-width: 200px;
+			animation: slideIn 0.3s ease-out;
+		}
+		.toast-success {
+			background-color: #4caf50;
+		}
+		.toast-error {
+			background-color: #f44336;
+		}
+		.toast-info {
+			background-color: #2196f3;
+		}
+		@keyframes slideIn {
+			from {
+				transform: translateX(100%);
+				opacity: 0;
+			}
+			to {
+				transform: translateX(0);
+				opacity: 1;
+			}
+		}
+		@keyframes slideOut {
+			from {
+				transform: translateX(0);
+				opacity: 1;
+			}
+			to {
+				transform: translateX(100%);
+				opacity: 0;
+			}
+		}
 		</style>
 </head>
 <body>
+	<div class="toast-container" id="toast-container"></div>
 	<div class="container">
 		<h1>噪音监测系统</h1>
 		<div class="visualizer-container">
@@ -385,10 +434,26 @@
 	// 全局变量，用于调试
 	console.log('JavaScript loaded');
 
+	// Toast提示函数
+	function showToast(message, type = 'info') {
+		const toastContainer = document.getElementById('toast-container');
+		const toast = document.createElement('div');
+		toast.className = `toast toast-${type}`;
+		toast.textContent = message;
+		toastContainer.appendChild(toast);
+
+		// 3秒后自动消失
+		setTimeout(() => {
+			toast.style.animation = 'slideOut 0.3s ease-out forwards';
+			setTimeout(() => {
+				toast.remove();
+			}, 300);
+		}, 3000);
+	}
+
 	// 播放随机音频
 	function playRandomAudio() {
 		console.log('playRandomAudio called');
-		alert('playRandomAudio called');
 		fetch('/api/audio/play/random', {
 			method: 'POST'
 		})
@@ -399,14 +464,14 @@
 		.then(data => {
 			console.log('Response data:', data);
 			if (data.success) {
-				alert('正在播放随机音频...');
+				showToast('正在播放随机音频...', 'success');
 			} else {
-				alert('播放失败: ' + data.error);
+				showToast('播放失败: ' + data.error, 'error');
 			}
 		})
 		.catch(error => {
 			console.error('Error playing random audio:', error);
-			alert('播放失败，请检查服务器状态');
+			showToast('播放失败，请检查服务器状态', 'error');
 		});
 	}
 
@@ -418,14 +483,14 @@
 		.then(response => response.json())
 		.then(data => {
 			if (data.success) {
-				alert('正在连续播放3次音频...');
+				showToast('正在连续播放3次音频...', 'success');
 			} else {
-				alert('播放失败: ' + data.error);
+				showToast('播放失败: ' + data.error, 'error');
 			}
 		})
 		.catch(error => {
 			console.error('Error playing audio sequence:', error);
-			alert('播放失败，请检查服务器状态');
+			showToast('播放失败，请检查服务器状态', 'error');
 		});
 	}
 
@@ -437,14 +502,14 @@
 		.then(response => response.json())
 		.then(data => {
 			if (data.success) {
-				alert('已停止播放');
+				showToast('已停止播放', 'success');
 			} else {
-				alert('停止失败: ' + data.error);
+				showToast('停止失败: ' + data.error, 'error');
 			}
 		})
 		.catch(error => {
 			console.error('Error stopping audio:', error);
-			alert('停止失败，请检查服务器状态');
+			showToast('停止失败，请检查服务器状态', 'error');
 		});
 	}
 

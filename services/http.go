@@ -49,6 +49,8 @@ type HTTPServer struct {
 	mux             *http.ServeMux
 	mainCtx         context.Context
 	mainCancel      context.CancelFunc
+	needsSave       bool
+	saveTicker      *time.Ticker
 }
 
 func NewHTTPServer(config HTTPConfig, audioFiles []string, playbackCtrl controller.PlaybackController) *HTTPServer {
@@ -68,6 +70,28 @@ func NewHTTPServer(config HTTPConfig, audioFiles []string, playbackCtrl controll
 
 func (s *HTTPServer) Start(ctx context.Context) {
 	s.setupRoutes()
+
+	s.saveTicker = time.NewTicker(5 * time.Second)
+
+	go func() {
+		for {
+			select {
+			case <-s.saveTicker.C:
+				s.dataMutex.Lock()
+				needsSave := s.needsSave
+				s.needsSave = false
+				s.dataMutex.Unlock()
+				
+				if needsSave {
+					s.SaveNoiseDataToFile()
+				}
+			case <-ctx.Done():
+				s.saveTicker.Stop()
+				s.SaveNoiseDataToFile()
+				return
+			}
+		}
+	}()
 
 	go func() {
 		addr := fmt.Sprintf(":%d", s.config.HTTPPort)
@@ -259,7 +283,7 @@ func (s *HTTPServer) AddNoiseData(data map[string]interface{}) {
 	}
 	s.recentNoiseData = filteredData
 
-	s.SaveNoiseDataToFile()
+	s.needsSave = true
 }
 
 func (s *HTTPServer) SaveNoiseDataToFile() {
