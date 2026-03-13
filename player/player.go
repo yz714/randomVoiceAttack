@@ -1,3 +1,4 @@
+// Package player provides audio playback functionality using the beep audio library.
 package player
 
 import (
@@ -13,22 +14,26 @@ import (
 	"github.com/faiface/beep/wav"
 )
 
-// Player 定义音频播放器接口
+// Player defines the interface for audio playback operations.
 type Player interface {
+	// PlayAudio plays an audio file with the default context.
 	PlayAudio(filePath string) error
+	// PlayAudioWithContext plays an audio file with support for context cancellation.
 	PlayAudioWithContext(ctx context.Context, filePath string) error
+	// PlaySilentAudio plays a short silent audio for Bluetooth heartbeat.
 	PlaySilentAudio() error
 }
 
-// 全局变量，用于跟踪扬声器是否已经初始化
+// speakerInitialized tracks whether the speaker has been initialized.
 var speakerInitialized bool
 
-// 播放指定的音频文件
+// PlayAudio plays an audio file with the default background context.
 func PlayAudio(filePath string) error {
 	return PlayAudioWithContext(context.Background(), filePath)
 }
 
-// 播放指定的音频文件，支持context取消
+// PlayAudioWithContext plays an audio file with support for context cancellation.
+// It supports both MP3 and WAV audio formats.
 func PlayAudioWithContext(ctx context.Context, filePath string) error {
 	f, err := os.Open(filePath)
 	if err != nil {
@@ -76,20 +81,21 @@ func PlayAudioWithContext(ctx context.Context, filePath string) error {
 	}
 }
 
-// 播放静音音频，用于蓝牙心跳
+// PlaySilentAudio plays a short silent audio for Bluetooth heartbeat.
+// This helps keep the Bluetooth connection alive.
 func PlaySilentAudio() error {
-	// 初始化扬声器（使用默认采样率）
+	// Initialize speaker with default sample rate
 	sampleRate := beep.SampleRate(44100)
-	// 只初始化一次扬声器
+	// Initialize speaker only once
 	if !speakerInitialized {
 		speaker.Init(sampleRate, sampleRate.N(time.Second/10))
 		speakerInitialized = true
 	}
 
-	// 创建一个简短的静音音频流
+	// Create a short silent audio stream
 	silentStreamer := beep.Silence(sampleRate.N(100 * time.Millisecond))
 
-	// 播放静音音频
+	// Play the silent audio
 	done := make(chan bool)
 	speaker.Play(beep.Seq(silentStreamer, beep.Callback(func() {
 		done <- true
