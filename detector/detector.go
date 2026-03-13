@@ -13,6 +13,14 @@ import (
 	"gonum.org/v1/gonum/dsp/fourier"
 )
 
+// Detector 定义音频检测器接口
+type Detector interface {
+	DetectSound() (bool, error)
+	DetectLowFrequencySound() (bool, error)
+	SaveNoiseSample(samples []float64) error
+	SetDetectorConfig(cfg DetectorConfig)
+}
+
 const (
 	lowFrequencyMin = 20
 	lowFrequencyMax = 250

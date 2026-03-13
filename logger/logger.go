@@ -8,6 +8,17 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
+// Logger 定义日志记录器接口
+type Logger interface {
+	Init() error
+	Log(format string, args ...interface{})
+	Debug(format string, args ...interface{})
+	Info(format string, args ...interface{})
+	Warn(format string, args ...interface{})
+	Error(format string, args ...interface{})
+	Close()
+}
+
 var (
 	logger *zap.Logger
 	sugar  *zap.SugaredLogger

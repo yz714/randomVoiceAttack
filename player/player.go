@@ -13,6 +13,13 @@ import (
 	"github.com/faiface/beep/wav"
 )
 
+// Player 定义音频播放器接口
+type Player interface {
+	PlayAudio(filePath string) error
+	PlayAudioWithContext(ctx context.Context, filePath string) error
+	PlaySilentAudio() error
+}
+
 // 全局变量，用于跟踪扬声器是否已经初始化
 var speakerInitialized bool
 
