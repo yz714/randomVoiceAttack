@@ -1,3 +1,4 @@
+// Package controller provides audio playback control functionality.
 package controller
 
 import (
@@ -11,13 +12,19 @@ import (
 	"randomVoiceAttack/player"
 )
 
+// PlaybackController defines the interface for audio playback control.
 type PlaybackController interface {
+	// IsPlaying returns whether audio is currently playing.
 	IsPlaying() bool
+	// SetPlaying sets the playing status.
 	SetPlaying(playing bool)
+	// Stop stops the currently playing audio.
 	Stop()
+	// PlayRandomAudios plays random audio files.
 	PlayRandomAudios(ctx context.Context)
 }
 
+// AudioController manages audio playback operations.
 type AudioController struct {
 	AudioFiles    []string
 	playCount     int
@@ -28,6 +35,7 @@ type AudioController struct {
 	cancelMutex   sync.Mutex
 }
 
+// NewAudioController creates a new AudioController instance.
 func NewAudioController(audioFiles []string, playCount int) *AudioController {
 	return &AudioController{
 		AudioFiles: audioFiles,
@@ -37,18 +45,21 @@ func NewAudioController(audioFiles []string, playCount int) *AudioController {
 	}
 }
 
+// IsPlaying returns whether audio is currently playing.
 func (ac *AudioController) IsPlaying() bool {
 	ac.playMutex.Lock()
 	defer ac.playMutex.Unlock()
 	return ac.isPlaying
 }
 
+// SetPlaying sets the playing status.
 func (ac *AudioController) SetPlaying(playing bool) {
 	ac.playMutex.Lock()
 	defer ac.playMutex.Unlock()
 	ac.isPlaying = playing
 }
 
+// Stop stops the currently playing audio by canceling the context.
 func (ac *AudioController) Stop() {
 	ac.cancelMutex.Lock()
 	if ac.playCancel != nil {
@@ -57,6 +68,8 @@ func (ac *AudioController) Stop() {
 	ac.cancelMutex.Unlock()
 }
 
+// PlayRandomAudios plays random audio files from the audio files list.
+// It will play the specified number of audio files.
 func (ac *AudioController) PlayRandomAudios(ctx context.Context) {
 	ac.SetPlaying(true)
 	defer ac.SetPlaying(false)
@@ -96,6 +109,8 @@ func (ac *AudioController) PlayRandomAudios(ctx context.Context) {
 	}
 }
 
+// DetectAndPlay detects low frequency sound and plays audio if detected.
+// It returns whether low frequency sound was detected and any error encountered.
 func (ac *AudioController) DetectAndPlay(ctx context.Context) (bool, error) {
 	select {
 	case <-ctx.Done():
