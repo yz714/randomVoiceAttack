@@ -103,10 +103,8 @@ func (ac *AudioController) PlayRandomAudios(ctx context.Context) {
 		if localCancel != nil {
 			localCancel()
 		}
-		if ac.playCancel == localCancel {
-			ac.playCancel = nil
-			ac.playCtx = nil
-		}
+		ac.playCancel = nil
+		ac.playCtx = nil
 		ac.cancelMutex.Unlock()
 	}()
 
