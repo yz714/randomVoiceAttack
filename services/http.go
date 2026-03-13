@@ -301,13 +301,13 @@ func (s *HTTPServer) AddNoiseData(data map[string]interface{}) {
 func (s *HTTPServer) SaveNoiseDataToFile() {
 	data, err := json.Marshal(s.noiseData)
 	if err != nil {
-		logger.Info("Error marshaling noise data: %v", err)
+		logger.Error("Error marshaling noise data: %v", err)
 		return
 	}
 
 	err = ioutil.WriteFile(s.dataFilePath, data, 0644)
 	if err != nil {
-		logger.Info("Error writing noise data to file: %v", err)
+		logger.Error("Error writing noise data to file: %v", err)
 		return
 	}
 }
@@ -336,14 +336,14 @@ func (s *HTTPServer) LoadNoiseDataFromFile() {
 
 	data, err := ioutil.ReadFile(s.dataFilePath)
 	if err != nil {
-		logger.Info("Error reading noise data from file: %v", err)
+		logger.Error("Error reading noise data from file: %v", err)
 		return
 	}
 
 	var noiseData []NoiseData
 	err = json.Unmarshal(data, &noiseData)
 	if err != nil {
-		logger.Info("Error unmarshaling noise data: %v", err)
+		logger.Error("Error unmarshaling noise data: %v", err)
 		return
 	}
 
