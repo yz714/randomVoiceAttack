@@ -26,13 +26,13 @@ type PlaybackController interface {
 
 // AudioController manages audio playback operations.
 type AudioController struct {
-	AudioFiles    []string
-	playCount     int
-	isPlaying     bool
-	playMutex     sync.Mutex
-	playCtx       context.Context
-	playCancel    context.CancelFunc
-	cancelMutex   sync.Mutex
+	AudioFiles  []string
+	playCount   int
+	isPlaying   bool
+	playMutex   sync.Mutex
+	playCtx     context.Context
+	playCancel  context.CancelFunc
+	cancelMutex sync.Mutex
 }
 
 // NewAudioController creates a new AudioController instance.
@@ -133,7 +133,14 @@ func (ac *AudioController) DetectAndPlay(ctx context.Context) (bool, error) {
 	if hasLowFreq {
 		logger.Info("Low frequency noise detected! Playing audio...")
 		ac.PlayRandomAudios(ctx)
-		logger.Info("Audio playback completed. Listening for low frequency noise...")
+		logger.Info("Audio playback completed. Entering cooldown period...")
+
+		select {
+		case <-ctx.Done():
+			return hasLowFreq, nil
+		case <-time.After(3 * time.Second):
+			logger.Info("Cooldown period ended. Listening for low frequency noise...")
+		}
 	}
 
 	select {
