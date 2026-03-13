@@ -26,23 +26,41 @@ type PlaybackController interface {
 
 // AudioController manages audio playback operations.
 type AudioController struct {
-	AudioFiles  []string
-	playCount   int
-	isPlaying   bool
-	playMutex   sync.Mutex
-	playCtx     context.Context
-	playCancel  context.CancelFunc
-	cancelMutex sync.Mutex
+	AudioFiles   []string
+	playCount    int
+	isPlaying    bool
+	playMutex    sync.Mutex
+	playCtx      context.Context
+	playCancel   context.CancelFunc
+	cancelMutex  sync.Mutex
+	isStopped    bool
+	stoppedMutex sync.Mutex
 }
 
 // NewAudioController creates a new AudioController instance.
 func NewAudioController(audioFiles []string, playCount int) *AudioController {
 	return &AudioController{
-		AudioFiles: audioFiles,
-		playCount:  playCount,
-		isPlaying:  false,
-		playMutex:  sync.Mutex{},
+		AudioFiles:   audioFiles,
+		playCount:    playCount,
+		isPlaying:    false,
+		playMutex:    sync.Mutex{},
+		isStopped:    false,
+		stoppedMutex: sync.Mutex{},
 	}
+}
+
+// IsStopped returns whether the controller is in stopped state.
+func (ac *AudioController) IsStopped() bool {
+	ac.stoppedMutex.Lock()
+	defer ac.stoppedMutex.Unlock()
+	return ac.isStopped
+}
+
+// SetStopped sets the stopped state.
+func (ac *AudioController) SetStopped(stopped bool) {
+	ac.stoppedMutex.Lock()
+	defer ac.stoppedMutex.Unlock()
+	ac.isStopped = stopped
 }
 
 // IsPlaying returns whether audio is currently playing.
@@ -61,6 +79,7 @@ func (ac *AudioController) SetPlaying(playing bool) {
 
 // Stop stops the currently playing audio by canceling the context.
 func (ac *AudioController) Stop() {
+	ac.SetStopped(true)
 	ac.cancelMutex.Lock()
 	if ac.playCancel != nil {
 		ac.playCancel()
@@ -76,19 +95,24 @@ func (ac *AudioController) PlayRandomAudios(ctx context.Context) {
 
 	ac.cancelMutex.Lock()
 	ac.playCtx, ac.playCancel = context.WithCancel(ctx)
+	localCtx := ac.playCtx
+	localCancel := ac.playCancel
 	ac.cancelMutex.Unlock()
 	defer func() {
 		ac.cancelMutex.Lock()
-		if ac.playCancel != nil {
-			ac.playCancel()
+		if localCancel != nil {
+			localCancel()
+		}
+		if ac.playCancel == localCancel {
 			ac.playCancel = nil
+			ac.playCtx = nil
 		}
 		ac.cancelMutex.Unlock()
 	}()
 
 	for i := 0; i < ac.playCount; i++ {
 		select {
-		case <-ac.playCtx.Done():
+		case <-localCtx.Done():
 			logger.Info("Playback cancelled")
 			return
 		default:
@@ -97,7 +121,7 @@ func (ac *AudioController) PlayRandomAudios(ctx context.Context) {
 		randomFile := ac.AudioFiles[rand.Intn(len(ac.AudioFiles))]
 		logger.Info("Playing (%d/%d): %s", i+1, ac.playCount, randomFile)
 
-		err := player.PlayAudioWithContext(ac.playCtx, randomFile)
+		err := player.PlayAudioWithContext(localCtx, randomFile)
 		if err != nil {
 			if err == context.Canceled {
 				logger.Info("Playback cancelled")
@@ -118,6 +142,11 @@ func (ac *AudioController) DetectAndPlay(ctx context.Context) (bool, error) {
 	default:
 	}
 
+	if ac.IsStopped() {
+		ac.SetStopped(false)
+		return false, nil
+	}
+
 	if ac.IsPlaying() {
 		time.Sleep(100 * time.Millisecond)
 		return false, nil
@@ -133,6 +162,13 @@ func (ac *AudioController) DetectAndPlay(ctx context.Context) (bool, error) {
 	if hasLowFreq {
 		logger.Info("Low frequency noise detected! Playing audio...")
 		ac.PlayRandomAudios(ctx)
+
+		select {
+		case <-ctx.Done():
+			return hasLowFreq, nil
+		default:
+		}
+
 		logger.Info("Audio playback completed. Entering cooldown period...")
 
 		select {
@@ -146,9 +182,8 @@ func (ac *AudioController) DetectAndPlay(ctx context.Context) (bool, error) {
 	select {
 	case <-ctx.Done():
 		return hasLowFreq, nil
-	default:
+	case <-time.After(1000 * time.Millisecond):
 	}
 
-	time.Sleep(1000 * time.Millisecond)
 	return hasLowFreq, nil
 }
