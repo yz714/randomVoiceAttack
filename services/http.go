@@ -5,14 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"math/rand"
 	"net/http"
 	"os"
 	"sync"
 	"time"
 
+	"randomVoiceAttack/controller"
 	"randomVoiceAttack/logger"
-	"randomVoiceAttack/player"
 )
 
 const (
@@ -34,11 +33,6 @@ type DetectionLog struct {
 	Type      string `json:"type"`
 }
 
-type PlaybackController interface {
-	IsPlaying() bool
-	SetPlaying(playing bool)
-}
-
 type HTTPConfig struct {
 	HTTPPort int
 }
@@ -50,18 +44,23 @@ type HTTPServer struct {
 	detectionLogs   []DetectionLog
 	audioFiles      []string
 	dataMutex       sync.Mutex
-	playbackCtrl    PlaybackController
+	playbackCtrl    controller.PlaybackController
 	dataFilePath    string
 	mux             *http.ServeMux
+	mainCtx         context.Context
+	mainCancel      context.CancelFunc
 }
 
-func NewHTTPServer(config HTTPConfig, audioFiles []string, playbackCtrl PlaybackController) *HTTPServer {
+func NewHTTPServer(config HTTPConfig, audioFiles []string, playbackCtrl controller.PlaybackController) *HTTPServer {
+	ctx, cancel := context.WithCancel(context.Background())
 	server := &HTTPServer{
 		config:       config,
 		audioFiles:   audioFiles,
 		playbackCtrl: playbackCtrl,
 		dataFilePath: "./noise_data.json",
 		mux:          http.NewServeMux(),
+		mainCtx:      ctx,
+		mainCancel:   cancel,
 	}
 	server.LoadNoiseDataFromFile()
 	return server
@@ -186,23 +185,7 @@ func (s *HTTPServer) handlePlayRandom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	go func() {
-		audioFiles := s.getAudioFiles()
-		if len(audioFiles) == 0 {
-			logger.Info("No audio files found")
-			return
-		}
-
-		randomFile := audioFiles[rand.Intn(len(audioFiles))]
-		logger.Info("Playing random audio: %s", randomFile)
-
-		s.setIsPlaying(true)
-		defer s.setIsPlaying(false)
-
-		if err := player.PlayAudio(randomFile); err != nil {
-			logger.Info("Error playing audio: %v", err)
-		} else {
-			logger.Info("Audio playback completed")
-		}
+		s.playbackCtrl.PlayRandomAudios(s.mainCtx)
 	}()
 
 	s.respondJSON(w, true, "Playing random audio", nil)
@@ -220,27 +203,7 @@ func (s *HTTPServer) handlePlaySequence(w http.ResponseWriter, r *http.Request) 
 	}
 
 	go func() {
-		audioFiles := s.getAudioFiles()
-		if len(audioFiles) == 0 {
-			logger.Info("No audio files found")
-			return
-		}
-
-		s.setIsPlaying(true)
-		defer func() {
-			s.setIsPlaying(false)
-			logger.Info("Audio sequence playback completed")
-		}()
-
-		for i := 0; i < 3; i++ {
-			randomFile := audioFiles[rand.Intn(len(audioFiles))]
-			logger.Info("Playing (%d/3): %s", i+1, randomFile)
-
-			if err := player.PlayAudio(randomFile); err != nil {
-				logger.Info("Error playing audio: %v", err)
-				continue
-			}
-		}
+		s.playbackCtrl.PlayRandomAudios(s.mainCtx)
 	}()
 
 	s.respondJSON(w, true, "Starting audio sequence playback", nil)
@@ -253,6 +216,7 @@ func (s *HTTPServer) handleStopAudio(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logger.Info("Stop audio requested")
+	s.playbackCtrl.Stop()
 	s.respondJSON(w, true, "Audio stop requested", nil)
 }
 

@@ -14,13 +14,18 @@ import (
 type PlaybackController interface {
 	IsPlaying() bool
 	SetPlaying(playing bool)
+	Stop()
+	PlayRandomAudios(ctx context.Context)
 }
 
 type AudioController struct {
-	AudioFiles []string
-	playCount  int
-	isPlaying  bool
-	playMutex  sync.Mutex
+	AudioFiles    []string
+	playCount     int
+	isPlaying     bool
+	playMutex     sync.Mutex
+	playCtx       context.Context
+	playCancel    context.CancelFunc
+	cancelMutex   sync.Mutex
 }
 
 func NewAudioController(audioFiles []string, playCount int) *AudioController {
@@ -44,13 +49,33 @@ func (ac *AudioController) SetPlaying(playing bool) {
 	ac.isPlaying = playing
 }
 
+func (ac *AudioController) Stop() {
+	ac.cancelMutex.Lock()
+	if ac.playCancel != nil {
+		ac.playCancel()
+	}
+	ac.cancelMutex.Unlock()
+}
+
 func (ac *AudioController) PlayRandomAudios(ctx context.Context) {
 	ac.SetPlaying(true)
 	defer ac.SetPlaying(false)
 
+	ac.cancelMutex.Lock()
+	ac.playCtx, ac.playCancel = context.WithCancel(ctx)
+	ac.cancelMutex.Unlock()
+	defer func() {
+		ac.cancelMutex.Lock()
+		if ac.playCancel != nil {
+			ac.playCancel()
+			ac.playCancel = nil
+		}
+		ac.cancelMutex.Unlock()
+	}()
+
 	for i := 0; i < ac.playCount; i++ {
 		select {
-		case <-ctx.Done():
+		case <-ac.playCtx.Done():
 			logger.Info("Playback cancelled")
 			return
 		default:
@@ -59,7 +84,7 @@ func (ac *AudioController) PlayRandomAudios(ctx context.Context) {
 		randomFile := ac.AudioFiles[rand.Intn(len(ac.AudioFiles))]
 		logger.Info("Playing (%d/%d): %s", i+1, ac.playCount, randomFile)
 
-		err := player.PlayAudioWithContext(ctx, randomFile)
+		err := player.PlayAudioWithContext(ac.playCtx, randomFile)
 		if err != nil {
 			if err == context.Canceled {
 				logger.Info("Playback cancelled")

@@ -95,26 +95,26 @@
 		}
 		.stats {
 			display: flex;
-			justify-content: space-around;
+			justify-content: flex-start;
 			margin: 0;
 			flex-wrap: wrap;
 		}
 		.stat-card {
-			padding: 12px;
+			padding: 6px 8px;
 			background-color: #e3f2fd;
-			border-radius: 8px;
+			border-radius: 4px;
 			text-align: center;
-			flex: 1;
-			margin: 5px;
-			min-width: 100px;
+			flex: 0 0 auto;
+			margin: 2px;
+			width: auto;
 		}
 		.stat-card h3 {
 			margin-top: 0;
 			color: #1976d2;
-			font-size: 14px;
+			font-size: 11px;
 		}
 		.stat-card p {
-			font-size: 18px;
+			font-size: 14px;
 			font-weight: bold;
 			color: #333;
 			margin: 0;
@@ -125,9 +125,11 @@
 			background-color: #1e1e1e;
 			border-radius: 8px;
 			box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-			width: 260px;
+			width: 580px;
+			height: 100%;
 			display: flex;
 			flex-direction: column;
+			overflow: hidden;
 		}
 		.terminal-header {
 			display: flex;
@@ -201,26 +203,26 @@
 			min-height: 0;
 		}
 		.button-container {
-			display: flex;
+			display: inline-flex;
 			justify-content: center;
 			align-items: center;
-			gap: 6px;
-			margin: 5px 0 0 0;
-			padding: 6px;
-			background-color: #f9f9f9;
-			border-radius: 6px;
+			gap: 2px;
+			margin: 1px 0 0 0;
+			padding: 0;
+			background-color: transparent;
+			border-radius: 0;
 			flex-wrap: wrap;
 		}
 		.action-btn {
-			padding: 7px 12px;
+			padding: 2px 4px;
 			color: white;
 			border: none;
-			border-radius: 5px;
+			border-radius: 2px;
 			cursor: pointer;
-			font-size: 12px;
+			font-size: 9px;
 			font-weight: 500;
 			transition: all 0.2s ease;
-			box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+			box-shadow: none;
 		}
 		.action-btn:hover {
 			transform: translateY(-1px);
@@ -372,7 +374,7 @@
 		</div>
 		<div class="charts-wrapper">
 			<div class="chart-container">
-				<canvas id="lowFreqChart"></div>canvas>
+				<canvas id="lowFreqChart"></canvas>
 			</div>
 			<div class="chart-container">
 				<canvas id="volumeChart"></canvas>
