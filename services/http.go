@@ -305,9 +305,17 @@ func (s *HTTPServer) SaveNoiseDataToFile() {
 		return
 	}
 
-	err = ioutil.WriteFile(s.dataFilePath, data, 0644)
+	tempFilePath := s.dataFilePath + ".tmp"
+	
+	err = ioutil.WriteFile(tempFilePath, data, 0644)
 	if err != nil {
-		logger.Error("Error writing noise data to file: %v", err)
+		logger.Error("Error writing noise data to temp file: %v", err)
+		return
+	}
+
+	err = os.Rename(tempFilePath, s.dataFilePath)
+	if err != nil {
+		logger.Warn("Failed to rename temp file to %s, keeping temp file: %v", s.dataFilePath, err)
 		return
 	}
 }
