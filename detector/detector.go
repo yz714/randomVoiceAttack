@@ -23,6 +23,14 @@ type Detector interface {
 	SetDetectorConfig(cfg DetectorConfig)
 }
 
+// AudioAnalysisResult 音频分析结果
+type AudioAnalysisResult struct {
+	LowFreqRatio float64
+	TotalEnergy  float64
+	Volume       float64
+	MaxSample    float64
+}
+
 const (
 	lowFrequencyMin = 20
 	lowFrequencyMax = 250
@@ -49,12 +57,12 @@ const (
 )
 
 var (
-	recordDir             = "records"
-	useMicrophone         = true
-	NoiseDataChan         = make(chan map[string]interface{}, noiseDataChanSize)
-	DetectionLogChan      = make(chan DetectionLog, detectionLogChanSize)
-	Debug                 = false
-	detectorConfig        = DetectorConfig{
+	recordDir        = "records"
+	useMicrophone    = true
+	NoiseDataChan    = make(chan map[string]interface{}, noiseDataChanSize)
+	DetectionLogChan = make(chan DetectionLog, detectionLogChanSize)
+	Debug            = false
+	detectorConfig   = DetectorConfig{
 		VolumeThreshold:       0.005,
 		LowFreqRatioThreshold: 0.015,
 		TotalEnergyThreshold:  0.01,
@@ -235,6 +243,51 @@ func detectLowFrequency(samples []float64) bool {
 		fmt.Println("Total energy is too low or zero")
 	}
 	return false
+}
+
+// AnalyzeAudio 分析音频样本的低频占比
+func AnalyzeAudio(samples []float64) AudioAnalysisResult {
+	volume, maxSample := calculateVolumeAndMax(samples)
+
+	fft := fourier.NewFFT(len(samples))
+	spectrum := fft.Coefficients(nil, samples)
+
+	freqResolution := float64(sampleRate) / float64(len(samples))
+
+	var lowFreqEnergy float64
+	var totalEnergy float64
+
+	for i, coeff := range spectrum {
+		freq := float64(i) * freqResolution
+		energy := real(coeff)*real(coeff) + imag(coeff)*imag(coeff)
+		totalEnergy += energy
+
+		if freq >= lowFrequencyMin && freq <= lowFrequencyMax {
+			lowFreqEnergy += energy
+		}
+	}
+
+	var lowFreqRatio float64
+	if totalEnergy > 0 {
+		lowFreqRatio = lowFreqEnergy / totalEnergy
+	}
+
+	return AudioAnalysisResult{
+		LowFreqRatio: lowFreqRatio,
+		TotalEnergy:  totalEnergy,
+		Volume:       volume,
+		MaxSample:    maxSample,
+	}
+}
+
+// SampleRate 返回采样率
+func SampleRate() int {
+	return sampleRate
+}
+
+// SampleSize 返回采样大小
+func SampleSize() int {
+	return sampleSize
 }
 
 func SaveNoiseSample(samples []float64) error {

@@ -104,3 +104,66 @@ func PlaySilentAudio() error {
 	<-done
 	return nil
 }
+
+// ReadAudioToSamples 读取音频文件并转换为float64样本
+func ReadAudioToSamples(filePath string, targetSampleSize int) ([]float64, error) {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	ext := filepath.Ext(filePath)
+	var streamer beep.StreamSeekCloser
+
+	switch ext {
+	case ".mp3":
+		streamer, _, err = mp3.Decode(f)
+	case ".wav":
+		streamer, _, err = wav.Decode(f)
+	default:
+		return nil, fmt.Errorf("unsupported audio format: %s", ext)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer streamer.Close()
+
+	var allSamples []float64
+	bufferSize := 4096
+	buffer := make([][2]float64, bufferSize)
+
+	for {
+		n, ok := streamer.Stream(buffer)
+		if !ok || n == 0 {
+			break
+		}
+
+		for i := 0; i < n; i++ {
+			sample := (buffer[i][0] + buffer[i][1]) / 2
+			allSamples = append(allSamples, sample)
+		}
+	}
+
+	if len(allSamples) == 0 {
+		return nil, fmt.Errorf("no samples read from file")
+	}
+
+	var samples []float64
+	if len(allSamples) >= targetSampleSize {
+		startIdx := len(allSamples)/2 - targetSampleSize/2
+		if startIdx < 0 {
+			startIdx = 0
+		}
+		if startIdx+targetSampleSize > len(allSamples) {
+			startIdx = len(allSamples) - targetSampleSize
+		}
+		samples = allSamples[startIdx : startIdx+targetSampleSize]
+	} else {
+		samples = make([]float64, targetSampleSize)
+		copy(samples, allSamples)
+	}
+
+	return samples, nil
+}

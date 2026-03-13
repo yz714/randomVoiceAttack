@@ -1,5 +1,6 @@
 # Data files
 noise_data.json
+audio_analysis.json
 
 # Binaries
 *.exe
