@@ -1,6 +1,7 @@
 package detector
 
 import (
+	"fmt"
 	"io/ioutil"
 	"math"
 	"os"
@@ -252,4 +253,117 @@ func TestTestSaveNoise(t *testing.T) {
 	if len(files) == 0 {
 		t.Error("No file was created")
 	}
+}
+
+// 测试detectLowFrequency对不同样本长度的处理（边界测试）
+func TestDetectLowFrequency_VariousSampleSizes(t *testing.T) {
+	// 测试各种可能的样本长度，包括会导致panic的长度
+	testSizes := []int{
+		0,              // 空切片
+		1,              // 非常小
+		15,             // panic时的长度
+		100,            // 小于sampleSize
+		sampleSize - 1, // 接近sampleSize
+		sampleSize,     // 正确长度
+		sampleSize + 1, // 超过sampleSize
+		2048,           // 2的幂
+		1023,           // 非2的幂
+	}
+
+	for _, size := range testSizes {
+		t.Run(fmt.Sprintf("SampleSize_%d", size), func(t *testing.T) {
+			samples := make([]float64, size)
+			for i := range samples {
+				samples[i] = 0.1 * math.Sin(2*math.Pi*50*float64(i)/sampleRate)
+			}
+
+			// 这里不应该panic
+			result := detectLowFrequency(samples)
+			// 结果可以是true或false，但程序不应该崩溃
+			_ = result
+		})
+	}
+}
+
+// 测试AnalyzeAudio对不同样本长度的处理
+func TestAnalyzeAudio_VariousSampleSizes(t *testing.T) {
+	testSizes := []int{
+		0,
+		1,
+		15,
+		100,
+		sampleSize - 1,
+		sampleSize,
+		sampleSize + 1,
+		2048,
+	}
+
+	for _, size := range testSizes {
+		t.Run(fmt.Sprintf("SampleSize_%d", size), func(t *testing.T) {
+			samples := make([]float64, size)
+			for i := range samples {
+				samples[i] = 0.5 * math.Sin(2*math.Pi*100*float64(i)/sampleRate)
+			}
+
+			// 这里不应该panic
+			result := AnalyzeAudio(samples)
+			// 验证返回的结构体字段都是有效的
+			if result.LowFreqRatio < 0 || result.LowFreqRatio > 1 {
+				t.Errorf("Invalid LowFreqRatio: %f", result.LowFreqRatio)
+			}
+			if result.TotalEnergy < 0 {
+				t.Errorf("Invalid TotalEnergy: %f", result.TotalEnergy)
+			}
+			if result.Volume < 0 {
+				t.Errorf("Invalid Volume: %f", result.Volume)
+			}
+			if result.MaxSample < 0 {
+				t.Errorf("Invalid MaxSample: %f", result.MaxSample)
+			}
+		})
+	}
+}
+
+// 测试detectLowFrequency在零样本情况下的处理
+func TestDetectLowFrequency_ZeroSamples(t *testing.T) {
+	samples := []float64{}
+	
+	// 不应该panic
+	result := detectLowFrequency(samples)
+	if result {
+		t.Error("Expected false for zero samples")
+	}
+}
+
+// 测试detectLowFrequency在单一样本情况下的处理
+func TestDetectLowFrequency_SingleSample(t *testing.T) {
+	samples := []float64{0.5}
+	
+	// 不应该panic
+	result := detectLowFrequency(samples)
+	_ = result // 结果不重要，关键是不崩溃
+}
+
+// 测试recover机制是否正常工作
+func TestDetectLowFrequency_RecoverWorks(t *testing.T) {
+	// 保存和恢复Debug模式
+	originalDebug := Debug
+	Debug = true
+	defer func() { Debug = originalDebug }()
+
+	// 使用一个可能导致问题的长度
+	samples := make([]float64, 15)
+	for i := range samples {
+		samples[i] = float64(i)
+	}
+
+	// 这个调用应该通过recover恢复，不会panic
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("detectLowFrequency panicked even with recover: %v", r)
+			}
+		}()
+		_ = detectLowFrequency(samples)
+	}()
 }

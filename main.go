@@ -110,7 +110,14 @@ func (app *App) RunDetectionLoop() {
 			case <-app.ctx.Done():
 				return
 			default:
-				app.audioCtrl.DetectAndPlay(app.ctx)
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							logger.Warn("Recovered from panic in detection loop: %v", r)
+						}
+					}()
+					app.audioCtrl.DetectAndPlay(app.ctx)
+				}()
 			}
 		}
 	}()
@@ -138,7 +145,7 @@ func (app *App) Cleanup() {
 	logger.Info("Waiting for all goroutines to finish...")
 	app.wg.Wait()
 	logger.Info("All goroutines finished")
-	
+
 	if err := detector.CloseAudioDevice(); err != nil {
 		logger.Info("Error closing audio device: %v", err)
 	}

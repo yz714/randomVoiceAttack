@@ -109,6 +109,16 @@ func getSamples() ([]float64, error) {
 			}
 			samples = generateTestSamples()
 		} else {
+			if len(samples) != sampleSize {
+				if len(samples) > sampleSize {
+					samples = samples[:sampleSize]
+				} else {
+					newSamples := make([]float64, sampleSize)
+					copy(newSamples, samples)
+					samples = newSamples
+				}
+			}
+			
 			if Debug {
 				fmt.Printf("Read %d samples from microphone\n", len(samples))
 			}
@@ -180,7 +190,22 @@ func generateTestSamples() []float64 {
 }
 
 func detectLowFrequency(samples []float64) bool {
+	defer func() {
+		if r := recover(); r != nil {
+			if Debug {
+				fmt.Printf("Recovered from panic in detectLowFrequency: %v\n", r)
+			}
+		}
+	}()
+
 	volume, maxSample := calculateVolumeAndMax(samples)
+
+	if len(samples) != sampleSize {
+		if Debug {
+			fmt.Printf("Invalid sample size: %d, expected %d\n", len(samples), sampleSize)
+		}
+		return false
+	}
 
 	fft := fourier.NewFFT(len(samples))
 	spectrum := fft.Coefficients(nil, samples)
@@ -247,7 +272,27 @@ func detectLowFrequency(samples []float64) bool {
 
 // AnalyzeAudio 分析音频样本的低频占比
 func AnalyzeAudio(samples []float64) AudioAnalysisResult {
+	defer func() {
+		if r := recover(); r != nil {
+			if Debug {
+				fmt.Printf("Recovered from panic in AnalyzeAudio: %v\n", r)
+			}
+		}
+	}()
+
 	volume, maxSample := calculateVolumeAndMax(samples)
+
+	if len(samples) != sampleSize {
+		if Debug {
+			fmt.Printf("Invalid sample size in AnalyzeAudio: %d, expected %d\n", len(samples), sampleSize)
+		}
+		return AudioAnalysisResult{
+			LowFreqRatio: 0,
+			TotalEnergy:  0,
+			Volume:       volume,
+			MaxSample:    maxSample,
+		}
+	}
 
 	fft := fourier.NewFFT(len(samples))
 	spectrum := fft.Coefficients(nil, samples)
