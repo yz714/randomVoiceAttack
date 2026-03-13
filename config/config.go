@@ -11,15 +11,15 @@ const (
 	maxHTTPPort = 65535
 	minPlayCount = 1
 	maxPlayCount = 100
-	minIntervalMs = 100
+	minIntervalMs = 1
 )
 
 var (
 	ErrInvalidHTTPPort = errors.New("HTTP port must be between 1 and 65535")
 	ErrInvalidPlayCount = errors.New("play count must be between 1 and 100")
 	ErrEmptyAudioDirectory = errors.New("audio directory cannot be empty")
-	ErrInvalidAntiLockInterval = errors.New("anti-lock interval must be at least 100ms")
-	ErrInvalidBluetoothHeartbeatInterval = errors.New("bluetooth heartbeat interval must be at least 100ms")
+	ErrInvalidAntiLockInterval = errors.New("anti-lock interval must be at least 1ms")
+	ErrInvalidBluetoothHeartbeatInterval = errors.New("bluetooth heartbeat interval must be at least 1ms")
 	ErrInvalidVolumeThreshold = errors.New("volume threshold must be non-negative")
 	ErrInvalidLowFreqRatioThreshold = errors.New("low frequency ratio threshold must be between 0 and 1")
 	ErrInvalidTotalEnergyThreshold = errors.New("total energy threshold must be non-negative")
