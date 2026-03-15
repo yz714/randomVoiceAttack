@@ -23,6 +23,7 @@ var (
 	ErrInvalidVolumeThreshold = errors.New("volume threshold must be non-negative")
 	ErrInvalidLowFreqRatioThreshold = errors.New("low frequency ratio threshold must be between 0 and 1")
 	ErrInvalidTotalEnergyThreshold = errors.New("total energy threshold must be non-negative")
+	ErrInvalidNoiseDataRetentionDays = errors.New("noise data retention days must be at least 1")
 )
 
 type Config struct {
@@ -36,6 +37,7 @@ type Config struct {
 	VolumeThreshold            float64 `json:"volume_threshold"`
 	LowFreqRatioThreshold      float64 `json:"low_freq_ratio_threshold"`
 	TotalEnergyThreshold       float64 `json:"total_energy_threshold"`
+	NoiseDataRetentionDays     int     `json:"noise_data_retention_days"`
 }
 
 func LoadConfig() (Config, error) {
@@ -97,5 +99,17 @@ func (c *Config) Validate() error {
 		return ErrInvalidTotalEnergyThreshold
 	}
 
+	if c.NoiseDataRetentionDays < 1 {
+		return ErrInvalidNoiseDataRetentionDays
+	}
+
 	return nil
+}
+
+func (c *Config) GetMaxNoiseDataEntries() int {
+	const entriesPerSecond = 1
+	const secondsPerMinute = 60
+	const minutesPerHour = 60
+	const hoursPerDay = 24
+	return c.NoiseDataRetentionDays * hoursPerDay * minutesPerHour * secondsPerMinute * entriesPerSecond
 }

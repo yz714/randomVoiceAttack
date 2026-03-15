@@ -69,12 +69,15 @@ func (app *App) StartServices() {
 	heartbeatService.Start(app.ctx)
 
 	app.httpServer = services.NewHTTPServer(services.HTTPConfig{
-		HTTPPort: app.cfg.HTTPPort,
+		HTTPPort:          app.cfg.HTTPPort,
+		MaxNoiseDataEntries: app.cfg.GetMaxNoiseDataEntries(),
 	}, app.audioCtrl.AudioFiles, app.audioCtrl)
 	app.httpServer.Start(app.ctx)
 
 	app.wg.Add(1)
-	go app.collectNoiseData()
+	utils.GoWithName("collectNoiseData", func() {
+		app.collectNoiseData()
+	})
 }
 
 func (app *App) collectNoiseData() {
@@ -103,24 +106,17 @@ func (app *App) RunDetectionLoop() {
 	logger.Info("Bluetooth heartbeat started")
 
 	app.wg.Add(1)
-	go func() {
+	utils.GoWithName("detectionLoop", func() {
 		defer app.wg.Done()
 		for {
 			select {
 			case <-app.ctx.Done():
 				return
 			default:
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							logger.Warn("Recovered from panic in detection loop: %v", r)
-						}
-					}()
-					app.audioCtrl.DetectAndPlay(app.ctx)
-				}()
+				app.audioCtrl.DetectAndPlay(app.ctx)
 			}
 		}
-	}()
+	})
 
 	for {
 		select {
@@ -142,6 +138,10 @@ func (app *App) RunDetectionLoop() {
 }
 
 func (app *App) Cleanup() {
+	if app.httpServer != nil {
+		app.httpServer.Shutdown()
+	}
+
 	logger.Info("Waiting for all goroutines to finish...")
 	app.wg.Wait()
 	logger.Info("All goroutines finished")

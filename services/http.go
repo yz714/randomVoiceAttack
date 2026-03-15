@@ -12,11 +12,11 @@ import (
 
 	"randomVoiceAttack/controller"
 	"randomVoiceAttack/logger"
+	"randomVoiceAttack/utils"
 )
 
 const (
-	maxNoiseDataEntries = 1000
-	maxDetectionLogs    = 100
+	maxDetectionLogs = 100
 )
 
 type NoiseData struct {
@@ -34,7 +34,8 @@ type DetectionLog struct {
 }
 
 type HTTPConfig struct {
-	HTTPPort int
+	HTTPPort            int
+	MaxNoiseDataEntries int
 }
 
 type HTTPServer struct {
@@ -73,7 +74,7 @@ func (s *HTTPServer) Start(ctx context.Context) {
 
 	s.saveTicker = time.NewTicker(5 * time.Second)
 
-	go func() {
+	utils.GoWithName("saveData", func() {
 		for {
 			select {
 			case <-s.saveTicker.C:
@@ -91,21 +92,21 @@ func (s *HTTPServer) Start(ctx context.Context) {
 				return
 			}
 		}
-	}()
+	})
 
-	go func() {
+	utils.GoWithName("httpServer", func() {
 		addr := fmt.Sprintf(":%d", s.config.HTTPPort)
 		server := &http.Server{
 			Addr:    addr,
 			Handler: s.mux,
 		}
 
-		go func() {
+		utils.GoWithName("listenAndServe", func() {
 			logger.Info("HTTP server started on %s", addr)
 			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 				logger.Info("Error starting HTTP server: %v", err)
 			}
-		}()
+		})
 
 		<-ctx.Done()
 
@@ -114,7 +115,7 @@ func (s *HTTPServer) Start(ctx context.Context) {
 			logger.Info("Error shutting down HTTP server: %v", err)
 		}
 		logger.Info("HTTP server stopped")
-	}()
+	})
 }
 
 func (s *HTTPServer) setupRoutes() {
@@ -246,22 +247,22 @@ func (s *HTTPServer) handleStopAudio(w http.ResponseWriter, r *http.Request) {
 
 func (s *HTTPServer) AddNoiseData(data map[string]interface{}) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
-	
+
 	lowFreqRatio, ok := data["low_freq_ratio"].(float64)
 	if !ok {
 		logger.Warn("Invalid type for low_freq_ratio, expected float64")
 	}
-	
+
 	volume, ok := data["volume"].(float64)
 	if !ok {
 		logger.Warn("Invalid type for volume, expected float64")
 	}
-	
+
 	maxSample, ok := data["max_sample"].(float64)
 	if !ok {
 		logger.Warn("Invalid type for max_sample, expected float64")
 	}
-	
+
 	t, ok := data["time"].(time.Time)
 	if !ok {
 		logger.Warn("Invalid type for time, expected time.Time")
@@ -279,9 +280,9 @@ func (s *HTTPServer) AddNoiseData(data map[string]interface{}) {
 		Time:         t,
 	})
 
-	if len(s.noiseData) > maxNoiseDataEntries {
-		newData := make([]NoiseData, maxNoiseDataEntries)
-		copy(newData, s.noiseData[len(s.noiseData)-maxNoiseDataEntries:])
+	if len(s.noiseData) > s.config.MaxNoiseDataEntries {
+		newData := make([]NoiseData, s.config.MaxNoiseDataEntries)
+		copy(newData, s.noiseData[len(s.noiseData)-s.config.MaxNoiseDataEntries:])
 		s.noiseData = newData
 	}
 
@@ -306,6 +307,14 @@ func (s *HTTPServer) AddNoiseData(data map[string]interface{}) {
 }
 
 func (s *HTTPServer) SaveNoiseDataToFile() {
+	s.dataMutex.Lock()
+	defer s.dataMutex.Unlock()
+
+	if len(s.noiseData) == 0 {
+		logger.Warn("No noise data to save, skipping file write")
+		return
+	}
+
 	data, err := json.Marshal(s.noiseData)
 	if err != nil {
 		logger.Error("Error marshaling noise data: %v", err)
@@ -325,6 +334,8 @@ func (s *HTTPServer) SaveNoiseDataToFile() {
 		logger.Warn("Failed to rename temp file to %s, keeping temp file: %v", s.dataFilePath, err)
 		return
 	}
+
+	logger.Info("Saved %d noise data entries to file", len(s.noiseData))
 }
 
 func (s *HTTPServer) AddDetectionLog(message string, logType string) {
@@ -343,6 +354,12 @@ func (s *HTTPServer) AddDetectionLog(message string, logType string) {
 		copy(newLogs, s.detectionLogs[len(s.detectionLogs)-maxDetectionLogs:])
 		s.detectionLogs = newLogs
 	}
+}
+
+func (s *HTTPServer) Shutdown() {
+	logger.Info("Saving noise data before shutdown...")
+	s.SaveNoiseDataToFile()
+	logger.Info("Noise data saved successfully")
 }
 
 func (s *HTTPServer) LoadNoiseDataFromFile() {

@@ -7,6 +7,7 @@ import (
 
 	"randomVoiceAttack/logger"
 	"randomVoiceAttack/player"
+	"randomVoiceAttack/utils"
 )
 
 // HeartbeatConfig 心跳服务配置
@@ -30,9 +31,13 @@ func NewHeartbeatService(config HeartbeatConfig) *HeartbeatService {
 // Start 启动心跳服务
 func (s *HeartbeatService) Start(ctx context.Context) {
 	// 启动蓝牙心跳协程
-	go s.bluetoothHeartbeat(ctx)
+	utils.GoWithName("bluetoothHeartbeat", func() {
+		s.bluetoothHeartbeat(ctx)
+	})
 	// 启动防止锁屏协程
-	go s.preventLockScreen(ctx)
+	utils.GoWithName("preventLockScreen", func() {
+		s.preventLockScreen(ctx)
+	})
 }
 
 // bluetoothHeartbeat 蓝牙心跳协程
